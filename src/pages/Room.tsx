@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { db } from '../db/idb';
 import { useDayPart, useLive, useReducedMotion } from '../hooks';
 import { navigate } from '../router';
@@ -8,7 +8,7 @@ import { doorURL, furnitureURL, deviceURL, windowURL, foodURL } from '../sprites
 import { sprite } from '../sprites/pixel';
 import { deviceById, furnById, FURN_CAT_LABEL, GIFTS, foodById, type FurnitureDef } from '../data/catalog';
 import { shelfBooks, shelfRows } from '../components/shelf';
-import { placeDevice, placeFurniture, storeFurniture, swapFurniture, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
+import { devicePos, furniturePos, placeDevice, placeFurniture, storeFurniture, swapFurniture, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
 import { endVisit, getVisit, giveGift, logInteraction, readTogether, saveMemory, shareMeal, startVisit } from '../services/love';
 import { checkAchievements } from '../services/reading';
 import { VISIT_LINES, type Line } from '../data/dialogue';
@@ -73,6 +73,10 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   const [selectedDev, setSelectedDev] = useState<OwnedDevice | null>(null);
   const [placing, setPlacing] = useState<{ kind: 'furn' | 'dev'; id: string; name: string } | null>(null);
   const [storage, setStorage] = useState(false);
+  // 擺設模式：拖曳任何家具／設備移動，點一下開選單
+  const [arrange, setArrange] = useState(false);
+  const [drag, setDrag] = useState<{ kind: 'furn' | 'dev'; id: string; x: number; y: number } | null>(null);
+  const dragStart = useRef<{ kind: 'furn' | 'dev'; id: string; px: number; py: number; ox: number; oy: number; moved: boolean; pointerId: number } | null>(null);
   const [lampOff, setLampOff] = useState<Record<string, boolean>>({});
   const [projectorOn, setProjectorOn] = useState(false);
   const [picker, setPicker] = useState<null | 'meal' | 'read' | 'gift' | 'diary'>(null);
@@ -145,10 +149,55 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       run(() => (kind === 'furn' ? placeFurniture(id, room, x, y) : placeDevice(id, room, x, y)), '已擺放');
       return;
     }
+    if (arrange) return;
     if (y > FLOOR_Y + 8) guard(async () => { await walkMe(x, y); setMe((a) => ({ ...a, view: 'front', flip: false })); });
   }
 
   const def = (f: OwnedFurniture) => furnById.get(f.defId)!;
+
+  // ───────── 擺設模式拖曳 ─────────
+  function dragDown(e: RPE<HTMLElement>, kind: 'furn' | 'dev', id: string, x: number, y: number) {
+    if (!arrange || placing) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const p = sceneCoords(e);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    dragStart.current = { kind, id, px: p.x, py: p.y, ox: x, oy: y, moved: false, pointerId: e.pointerId };
+  }
+  function dragMove(e: RPE<HTMLElement>) {
+    const s = dragStart.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    const p = sceneCoords(e);
+    const dx = p.x - s.px, dy = p.y - s.py;
+    if (!s.moved && Math.hypot(dx, dy) < 3) return;
+    s.moved = true;
+    let pos: { x: number; y: number };
+    if (s.kind === 'furn') { const f = furniture.find((o) => o.id === s.id); if (!f) return; pos = furniturePos(def(f), s.ox + dx, s.oy + dy); }
+    else pos = devicePos(s.ox + dx, s.oy + dy);
+    setDrag({ kind: s.kind, id: s.id, ...pos });
+  }
+  function dragUp(e: RPE<HTMLElement>) {
+    const s = dragStart.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    dragStart.current = null;
+    e.stopPropagation();
+    if (!s.moved) {
+      setDrag(null);
+      if (s.kind === 'furn') { const f = furniture.find((o) => o.id === s.id); if (f) setSelected(f); }
+      else { const d = devices.find((o) => o.id === s.id); if (d) setSelectedDev(d); }
+      return;
+    }
+    const d = drag && drag.id === s.id ? drag : null;
+    if (!d) return;
+    const save = s.kind === 'furn' ? placeFurniture(s.id, room, d.x, d.y) : placeDevice(s.id, room, d.x, d.y);
+    save.catch((err) => toast((err as Error).message, 'error')).finally(() => setTimeout(() => setDrag((cur) => (cur && cur.id === s.id ? null : cur)), 120));
+  }
+  const dragProps = (kind: 'furn' | 'dev', id: string, x: number, y: number) => arrange ? {
+    onPointerDown: (e: RPE<HTMLElement>) => dragDown(e, kind, id, x, y),
+    onPointerMove: dragMove,
+    onPointerUp: dragUp,
+    onPointerCancel: () => { dragStart.current = null; setDrag(null); },
+  } : {};
   const nearest = (cat: string) => placed.filter((f) => def(f).category === cat).sort((a, b) => Math.abs(a.x - me.x) - Math.abs(b.x - me.x))[0];
 
   async function interact(f: OwnedFurniture) {
@@ -377,7 +426,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
         <button onClick={() => navigate('/phone')}>📱 手機</button>
       </div>
       <div className="scene-wrap">
-        <div className="scene" ref={sceneRef} onClick={(e) => onSceneClick(e)} data-testid="room-scene" data-room={room}>
+        <div className={'scene' + (arrange ? ' arrange' : '')} ref={sceneRef} onClick={(e) => onSceneClick(e)} data-testid="room-scene" data-room={room}>
           <img className="layer px" src={roomBg(room)} alt="" style={{ width: '100%', height: '100%' }} />
           {/* window with real-time sky */}
           <img className="obj px" src={windowURL(part)} alt={`窗外：${DAYPART_LABEL[part]}`} style={objStyle(WINDOW[room].x, WINDOW[room].y, 52, 2)} onClick={(e) => { e.stopPropagation(); toast(`現在是${DAYPART_LABEL[part]} ${timeHM(now)}`, 'info'); }} />
@@ -388,16 +437,21 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             const isShelf = d.category === 'bookshelf';
             const perRow = d.id === 'bookshelf_tall' ? 12 : 9;
             const { url, w } = furnitureURL(d, { on: (d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f), open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
-            const z = d.placement === 'wall' ? 4 : d.category === 'rug' ? 5 : d.placement === 'surface' ? Math.round(f.y * 10) + 400 : Math.round(f.y * 10);
+            const dragging = drag?.kind === 'furn' && drag.id === f.id;
+            const fx = dragging ? drag.x : f.x, fy = dragging ? drag.y : f.y;
+            const z = dragging ? 2800 : d.placement === 'wall' ? 4 : d.category === 'rug' ? 5 : d.placement === 'surface' ? Math.round(fy * 10) + 400 : Math.round(fy * 10);
             return (
-              <img key={f.id} className={'obj px' + (selected?.id === f.id ? ' selected' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
-                style={objStyle(f.x, f.y, w, z)} onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); interact(f); }} />
+              <img key={f.id} draggable={false} className={'obj px' + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
+                style={objStyle(fx, fy, w, z)} {...dragProps('furn', f.id, f.x, f.y)}
+                onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} />
             );
           })}
           {placedDev.map((d) => {
             const dd = deviceById.get(d.defId)!;
             const { url, w } = deviceURL(dd, night || dd.deviceType !== 'phone');
-            return <img key={d.id} className="obj px" src={url} alt={dd.name} data-testid={`device-${dd.deviceType}`} style={objStyle(d.x, d.y, w, Math.round(d.y * 10) + 500)} onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); setSelectedDev(d); }} />;
+            const dragging = drag?.kind === 'dev' && drag.id === d.id;
+            const dx = dragging ? drag.x : d.x, dy = dragging ? drag.y : d.y;
+            return <img key={d.id} draggable={false} className={'obj px' + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={dd.name} data-testid={`device-${dd.deviceType}`} style={objStyle(dx, dy, w, dragging ? 2850 : Math.round(dy * 10) + 500)} {...dragProps('dev', d.id, d.x, d.y)} onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; setSelectedDev(d); }} />;
           })}
           {/* lamp glow */}
           {placed.filter((f) => (def(f).category === 'lamp' || def(f).category === 'readingLamp') && lampOn(f)).map((f) => (
@@ -414,6 +468,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             <span className="hud-pill">{room === 'bedroom' ? '臥室' : '書房'} · {DAYPART_LABEL[part]} {timeHM(now)}</span>
             {visit?.active && <span className="hud-pill" style={{ background: '#fde9ea' }}>💗 陳卷毛在家</span>}
           </div>
+          {arrange && !placing && <div className="place-hint" data-testid="arrange-hint">🛠 拖曳家具移動 · 點一下可收納／更換 · <button className="btn small" style={{ minHeight: 24, padding: '0 6px' }} onClick={(e) => { e.stopPropagation(); setArrange(false); }}>完成</button></div>}
           {placing && <div className="place-hint">點選要放「{placing.name}」的位置 · <button className="btn small" style={{ minHeight: 24, padding: '0 6px' }} onClick={(e) => { e.stopPropagation(); setPlacing(null); }}>取消</button></div>}
         </div>
       </div>
@@ -432,6 +487,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             <button className="btn" onClick={love.gift}>🎁<span>送小禮物</span></button>
             <button className="btn" onClick={() => navigate('/love')}>📱<span>傳訊息</span></button>
             <button className="btn" onClick={() => setStorage(true)}>📦<span>收納箱</span></button>
+            <button className={'btn' + (arrange ? ' primary' : '')} onClick={() => { setArrange((v) => !v); setDrag(null); setPlacing(null); }} data-testid="arrange-toggle">🛠<span>{arrange ? '完成擺設' : '擺設'}</span></button>
             <button className="btn wood" onClick={love.leave} data-testid="act-leave">🚪<span>送他回家</span></button>
           </div>
           {lastMoment && (
@@ -445,11 +501,12 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
         <div className="action-bar">
           <button className="btn pink" onClick={invite} data-testid="invite-chen">💗<span>邀請陳卷毛</span></button>
           <button className="btn" onClick={() => setStorage(true)}>📦<span>收納箱{stored.length + storedDev.length ? ` ${stored.length + storedDev.length}` : ''}</span></button>
+<button className={'btn' + (arrange ? ' primary' : '')} onClick={() => { setArrange((v) => !v); setDrag(null); setPlacing(null); }} data-testid="arrange-toggle">🛠<span>{arrange ? '完成擺設' : '擺設'}</span></button>
           <button className="btn" onClick={() => navigate('/shop')}><Icon name="gift" /><span>商店</span></button>
           <button className="btn" onClick={() => navigate('/bookshelf')}><Icon name="shelf" /><span>書架</span></button>
         </div>
       )}
-      <p className="muted center small" style={{ padding: '0 12px' }}>點地板走路、點家具互動；家具可以移動、收納、更換。</p>
+      <p className="muted center small" style={{ padding: '0 12px' }}>點地板走路、點家具互動；按「🛠 擺設」就能拖曳移動任何家具，點一下可收納或更換。</p>
 
       {/* furniture menu */}
       <Sheet open={!!selected} onClose={() => setSelected(null)} title={selected ? def(selected).name : ''}>

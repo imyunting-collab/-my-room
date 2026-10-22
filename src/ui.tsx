@@ -5,6 +5,7 @@ import { toast } from './lib/bus';
 import { CATEGORY_COLORS } from './data/catalog';
 import type { Book } from './db/types';
 import { photoURL, savePhoto } from './services/journal';
+import { PhotoViewer } from './components/DiaryBook';
 import { GameError } from './services/wallet';
 
 export function Icon({ name, size = 20, alt = '' }: { name: string; size?: number; alt?: string }) {
@@ -116,20 +117,24 @@ export function usePhoto(id?: string) {
   useEffect(() => { let alive = true; if (id) photoURL(id).then((u) => alive && setUrl(u)); else setUrl(null); return () => { alive = false; }; }, [id]);
   return url;
 }
-export function PhotoThumb({ id, size = 72, onRemove }: { id: string; size?: number; onRemove?: () => void }) {
+export function PhotoThumb({ id, size = 72, onRemove, onOpen }: { id: string; size?: number; onRemove?: () => void; onOpen?: () => void }) {
   const url = usePhoto(id);
   return (
     <div style={{ position: 'relative', width: size, height: size, border: '2px solid var(--ink)', borderRadius: 6, overflow: 'hidden', background: 'var(--cream-2)', flexShrink: 0 }}>
-      {url && <img src={url} alt="照片" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+      {url && (onOpen
+        ? <button type="button" className="thumb-btn" onClick={(e) => { e.stopPropagation(); onOpen(); }} aria-label="放大照片" data-testid="photo-thumb" style={{ width: '100%', height: '100%' }}><img src={url} alt="照片" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></button>
+        : <img src={url} alt="照片" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)}
       {onRemove && <button onClick={onRemove} aria-label="移除照片" style={{ position: 'absolute', top: 2, right: 2, border: '2px solid var(--ink)', borderRadius: 4, background: '#fff', width: 26, height: 26, cursor: 'pointer', fontWeight: 900 }}>✕</button>}
     </div>
   );
 }
 export function PhotoPicker({ ids, onChange, max = 6 }: { ids: string[]; onChange: (ids: string[]) => void; max?: number }) {
   const { busy, run } = useAction();
+  const [view, setView] = useState<number | null>(null);
   return (
     <div className="row wrap">
-      {ids.map((id) => <PhotoThumb key={id} id={id} onRemove={() => onChange(ids.filter((x) => x !== id))} />)}
+      {view != null && <PhotoViewer ids={ids} start={view} onClose={() => setView(null)} />}
+      {ids.map((id, i) => <PhotoThumb key={id} id={id} onOpen={() => setView(i)} onRemove={() => onChange(ids.filter((x) => x !== id))} />)}
       {ids.length < max && (
         <label className="btn small" style={{ cursor: 'pointer' }}>
           {busy ? '儲存中…' : '＋ 照片'}

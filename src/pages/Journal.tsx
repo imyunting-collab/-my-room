@@ -7,6 +7,7 @@ import { Empty, Icon, MOODS, moodLabel, PhotoThumb, Tabs } from '../ui';
 import { copyText, downloadText, fmtDate } from '../lib/util';
 import { toast } from '../lib/bus';
 import { diaryToMarkdown, TEMPLATES } from '../services/journal';
+import { PhotoViewer } from '../components/DiaryBook';
 
 type Tab = 'quotes' | 'reflections' | 'diary' | 'mood' | 'photos';
 
@@ -14,6 +15,7 @@ export default function JournalPage() {
   const [tab, setTab] = useState<Tab>('quotes');
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('');
+  const [view, setView] = useState<number | null>(null);
   const books = useBooks();
   const sessions = useSessions();
   const quotes = (useLive(() => db.all('quotes'), [], []) ?? []).sort((a, b) => b.createdAt - a.createdAt);
@@ -94,7 +96,8 @@ export default function JournalPage() {
             <p className="muted">統計來自閱讀紀錄與日記中選擇的心情。</p>
           </div>
         )}
-        {tab === 'photos' && (photos.length === 0 ? <Empty icon="star">還沒有照片。</Empty> : <div className="row wrap">{photos.map(({ p, label }) => <div key={p} title={label}><PhotoThumb id={p} size={96} /></div>)}</div>)}
+        {tab === 'photos' && (photos.length === 0 ? <Empty icon="star">還沒有照片。</Empty> : <div className="row wrap">{photos.map(({ p, label }, i) => <div key={p} title={label}><PhotoThumb id={p} size={96} onOpen={() => setView(i)} /></div>)}</div>)}
+        {view != null && <PhotoViewer ids={photos.map((x) => x.p)} start={view} onClose={() => setView(null)} />}
       </div>
       <div className="row"><Link to="/calendar" className="btn small"><Icon name="calendar" />閱讀月曆</Link><Link to="/stats" className="btn small"><Icon name="chart" />統計</Link></div>
     </div>

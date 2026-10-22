@@ -133,6 +133,50 @@ try {
       await page.click('[data-testid=phone-app-diary]');
       await page.waitForSelector('text=電腦寫的日記');
     });
+    await e2e('日記可以像書一樣翻閱，照片可以放大，從書裡可以進入編輯', async () => {
+      // 1×1 png
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+      await go('/diary');
+      await page.click('[data-testid=new-diary]');
+      await page.fill('input[name=diary-title]', '有照片的一天');
+      await page.fill('textarea[name=diary-content]', '第一行\n第二行，翻頁看看。');
+      await page.setInputFiles('[data-testid=diary-editor] input[type=file]', { name: 'a.png', mimeType: 'image/png', buffer: png });
+      await page.waitForSelector('[data-testid=diary-editor] [data-testid=photo-thumb]');
+      await page.click('[data-testid=diary-editor] [data-testid=photo-thumb]');
+      await page.waitForSelector('[data-testid=photo-viewer] img');
+      await page.click('[data-testid=photo-viewer-close]');
+      await page.click('[data-testid=save-diary]');
+      await page.waitForSelector('[data-testid=diary-row]:has-text("有照片的一天")');
+      // tapping a row opens the book, NOT the editor
+      await page.click('[data-testid=diary-row]:has-text("有照片的一天")');
+      await page.waitForSelector('[data-testid=diary-book]');
+      if (await page.locator('[data-testid=diary-editor]').count()) throw new Error('editor opened instead of book');
+      const cur = page.locator('[data-testid=diary-book] [data-testid=book-page]').last();
+      if (!(await cur.textContent()).includes('第二行，翻頁看看。')) throw new Error('full text not shown');
+      await page.click('[data-testid=book-photo]');
+      await page.waitForSelector('[data-testid=photo-viewer] img');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-testid=photo-viewer]', { state: 'detached' });
+      // flip back to the earlier entry and forward again
+      await page.click('[data-testid=book-prev]');
+      await page.waitForTimeout(700);
+      if (!(await page.locator('[data-testid=diary-book] [data-testid=book-page]').last().textContent()).includes('電腦寫的日記')) throw new Error('prev page wrong');
+      await page.click('[data-testid=book-next]');
+      await page.waitForTimeout(700);
+      if (!(await page.locator('[data-testid=diary-book] [data-testid=book-page]').last().textContent()).includes('有照片的一天')) throw new Error('next page wrong');
+      // edit from the book, come back to the book
+      await page.click('[data-testid=book-edit]');
+      await page.fill('input[name=diary-title]', '有照片的一天（改）');
+      await page.click('[data-testid=save-diary]');
+      await page.waitForSelector('[data-testid=diary-book] >> text=有照片的一天（改）');
+      await page.click('[data-testid=book-close]');
+      await page.waitForSelector('[data-testid=diary-book]', { state: 'detached' });
+      // the journal link opens the same book
+      await go('/journal');
+      await page.click('button:has-text("日記")');
+      await page.click('a.list-item:has-text("有照片的一天（改）")');
+      await page.waitForSelector('[data-testid=diary-book]');
+    });
     await e2e('手機聯絡人可以聊天，陳卷毛會回覆', async () => {
       await go('/phone');
       await page.click('[data-testid=phone-app-chat]');
@@ -192,6 +236,36 @@ try {
       if (await page.locator('[data-testid=actor-chen]').count()) throw new Error('chen reappeared');
       await page.waitForSelector('[data-testid=invite-chen]');
     });
+    await e2e('擺設模式可以拖曳冰箱、衣櫃、床，重新整理後位置保留', async () => {
+      await go('/room?scene=bedroom');
+      await page.click('[data-testid=arrange-toggle]');
+      await page.waitForSelector('[data-testid=arrange-hint]');
+      const box = await page.locator('[data-testid=room-scene]').boundingBox();
+      const before = {};
+      for (const cat of ['fridge', 'wardrobe', 'bed']) {
+        const el = page.locator(`[data-testid=furn-${cat}]`).first();
+        const b = await el.boundingBox();
+        before[cat] = b;
+        const sx = b.x + b.width / 2, sy = b.y + b.height * 0.7;
+        await page.mouse.move(sx, sy); await page.mouse.down();
+        for (let i = 1; i <= 6; i++) await page.mouse.move(sx - (box.width * 0.12) * (i / 6), sy + (box.height * 0.06) * (i / 6));
+        await page.mouse.up();
+        await page.waitForTimeout(400);
+      }
+      if (await page.locator('.sheet, [role=dialog]').count()) throw new Error('menu opened on drag');
+      if (page.url().includes('/fridge') || page.url().includes('/wardrobe')) throw new Error('navigated instead of drag');
+      await page.reload(); await page.waitForTimeout(800);
+      for (const cat of ['fridge', 'wardrobe', 'bed']) {
+        const b = await page.locator(`[data-testid=furn-${cat}]`).first().boundingBox();
+        if (Math.abs(b.x - before[cat].x) < 10) throw new Error(`${cat} did not move: ${before[cat].x} → ${b.x}`);
+      }
+      // tap (no drag) in arrange mode opens the menu with 移動/收納
+      await page.click('[data-testid=arrange-toggle]');
+      await page.locator('[data-testid=furn-fridge]').first().click();
+      await page.waitForSelector('button:has-text("收納")');
+      await page.keyboard.press('Escape');
+      await page.click('[data-testid=arrange-toggle]');
+    });
     await e2e('戀愛日記可以新增、編輯、刪除', async () => {
       await go('/love-diary');
       await page.click('[data-testid=new-memory]');
@@ -199,10 +273,14 @@ try {
       await page.click('[data-testid=save-memory]');
       await page.waitForSelector('[data-testid=memory-row]:has-text("第一次約會")');
       await page.click('[data-testid=memory-row]:has-text("第一次約會")');
+      await page.waitForSelector('[data-testid=diary-book] [data-testid=book-page]:has-text("第一次約會")');
+      await page.click('[data-testid=book-edit]');
       await page.fill('input[name=memory-title]', '第一次約會（改）');
       await page.click('[data-testid=save-memory]');
-      await page.waitForSelector('text=第一次約會（改）');
+      await page.waitForSelector('[data-testid=diary-book] >> text=第一次約會（改）');
+      await page.click('[data-testid=book-close]');
       await page.click('[data-testid=memory-row]:has-text("第一次約會（改）")');
+      await page.click('[data-testid=book-edit]');
       await page.click('button:has-text("刪除")');
       await page.click('[data-testid=confirm-ok]');
       await page.waitForTimeout(400);

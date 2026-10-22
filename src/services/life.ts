@@ -92,14 +92,22 @@ export async function buyPlant(defId: string): Promise<OwnedPlant> {
 // ───────── room layout ─────────
 export const ROOM_W = 192, ROOM_H = 240, FLOOR_Y = 118;
 
+/** Clamp a furniture anchor (bottom-centre) to where that kind of piece is allowed to stand. */
+export function furniturePos(def: { w: number; h: number; placement: string }, x: number, y: number) {
+  const minY = def.placement === 'wall' ? def.h + 6 : def.placement === 'surface' ? 40 : FLOOR_Y + 12;
+  const maxY = def.placement === 'wall' ? FLOOR_Y - 2 : ROOM_H - 6;
+  return { x: Math.round(clamp(x, def.w / 2 + 2, ROOM_W - def.w / 2 - 2)), y: Math.round(clamp(y, minY, maxY)) };
+}
+export function devicePos(x: number, y: number) {
+  return { x: Math.round(clamp(x, 8, ROOM_W - 8)), y: Math.round(clamp(y, 40, ROOM_H - 6)) };
+}
+
 export async function placeFurniture(id: string, roomId: RoomId, x: number, y: number) {
   await db.tx(['ownedFurniture'], 'readwrite', async (t) => {
     const f = await t.store('ownedFurniture').get(id);
     if (!f) throw new GameError('找不到家具');
     const def = furnById.get(f.defId)!;
-    const minY = def.placement === 'wall' ? def.h + 6 : def.placement === 'surface' ? 40 : FLOOR_Y + 12;
-    const maxY = def.placement === 'wall' ? FLOOR_Y - 2 : ROOM_H - 6;
-    await t.store('ownedFurniture').put({ ...f, roomId, x: Math.round(clamp(x, def.w / 2 + 2, ROOM_W - def.w / 2 - 2)), y: Math.round(clamp(y, minY, maxY)) });
+    await t.store('ownedFurniture').put({ ...f, roomId, ...furniturePos(def, x, y) });
   });
 }
 export async function storeFurniture(id: string) {
@@ -122,7 +130,7 @@ export async function placeDevice(id: string, roomId: RoomId | null, x = 0, y = 
   await db.tx(['ownedDevices'], 'readwrite', async (t) => {
     const d = await t.store('ownedDevices').get(id);
     if (!d) throw new GameError('找不到設備');
-    await t.store('ownedDevices').put({ ...d, roomId, isPlaced: !!roomId, x: Math.round(clamp(x, 8, ROOM_W - 8)), y: Math.round(clamp(y, 40, ROOM_H - 6)) });
+    await t.store('ownedDevices').put({ ...d, roomId, isPlaced: !!roomId, ...devicePos(x, y) });
   });
 }
 

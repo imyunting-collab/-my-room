@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { db } from '../db/idb';
 import { useLive } from '../hooks';
 import { foodById } from '../data/catalog';
@@ -6,6 +6,7 @@ import { deleteAnniversary, deleteMemory, saveAnniversary, saveMemory, updateRel
 import { confirmDialog, Empty, Field, Icon, PhotoPicker, PhotoThumb, Sheet, Tabs, useAction } from '../ui';
 import { dateKey, daysBetween, fmtDateTime, parseDateKey } from '../lib/util';
 import type { LoveMemory } from '../db/types';
+import { DiaryBook, type BookPage } from '../components/DiaryBook';
 
 const INTERACTION: Record<string, string> = { chat: '聊天', hug: '抱抱', kiss: '親親', sit: '一起坐著', meal: '一起吃飯', read: '一起看書', movie: '看電影', diary: '分享日記', gift: '送禮物' };
 
@@ -26,8 +27,19 @@ function Memories() {
   const [filter, setFilter] = useState<'all' | 'real' | 'game'>('all');
   const [edit, setEdit] = useState<Partial<LoveMemory> | null>(null);
   const list = all.filter((m) => filter === 'all' || m.sourceType === filter);
+  const [reading, setReading] = useState<string | null>(null);
+  const backToBook = useRef<string | null>(null);
+  const pages: BookPage[] = list.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((m) => ({
+    id: m.id, date: m.date, title: m.title, content: m.content, photoIds: m.photoIds,
+    badge: <span className={'tag ' + m.sourceType}>{m.sourceType === 'real' ? '真實回憶' : '遊戲紀錄'}</span>,
+  }));
+  const closeEdit = () => { setEdit(null); if (backToBook.current) { setReading(backToBook.current); backToBook.current = null; } };
   return (
     <div>
+      {reading && pages.some((p) => p.id === reading) && (
+        <DiaryBook pages={pages} startId={reading} title="戀愛日記" onClose={() => setReading(null)}
+          onEdit={(id) => { const m = all.find((x) => x.id === id); if (!m) return; backToBook.current = id; setReading(null); setEdit(m); }} />
+      )}
       <p className="muted">「真實回憶」是你自己寫下的事；「遊戲紀錄」是在 MY ROOM 裡和陳卷毛（遊戲角色）互動後，你選擇收藏的片段。兩者會分開標示。</p>
       <div className="row between" style={{ marginBottom: 10 }}>
         <div className="chips">
@@ -35,9 +47,10 @@ function Memories() {
         </div>
         <button className="btn small pink" onClick={() => setEdit({ sourceType: 'real', date: dateKey(), title: '', content: '', photoIds: [] })} data-testid="new-memory">＋ 寫下回憶</button>
       </div>
+      {pages.length > 0 && <button className="btn pink block" style={{ marginBottom: 10 }} onClick={() => setReading(pages[pages.length - 1].id)} data-testid="open-love-book">📖 翻閱戀愛日記（{pages.length} 頁）</button>}
       <div className="card">
         {list.length === 0 ? <Empty icon="heart">還沒有回憶。</Empty> : list.map((m) => (
-          <div key={m.id} className="list-item" onClick={() => setEdit(m)} role="button" tabIndex={0} data-testid="memory-row">
+          <div key={m.id} className="list-item" onClick={() => setReading(m.id)} role="button" tabIndex={0} data-testid="memory-row">
             {m.photoIds[0] && <PhotoThumb id={m.photoIds[0]} size={52} />}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="row between"><b>{m.title}</b><span className={'tag ' + m.sourceType}>{m.sourceType === 'real' ? '真實回憶' : '遊戲紀錄'}</span></div>
@@ -47,7 +60,7 @@ function Memories() {
           </div>
         ))}
       </div>
-      <Sheet open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? '編輯回憶' : '寫下回憶'}>{edit && <MemoryForm m={edit} onDone={() => setEdit(null)} />}</Sheet>
+      <Sheet open={!!edit} onClose={closeEdit} title={edit?.id ? '編輯回憶' : '寫下回憶'}>{edit && <MemoryForm m={edit} onDone={closeEdit} />}</Sheet>
     </div>
   );
 }

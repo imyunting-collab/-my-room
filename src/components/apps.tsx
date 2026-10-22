@@ -16,11 +16,14 @@ import { dateKey, downloadText, fmtDate, fmtDateTime, fmtMinutes, pick, timeHM }
 import { toast } from '../lib/bus';
 import { checkAchievements } from '../services/reading';
 import type { DiaryEntry, DiaryTemplate, Mood } from '../db/types';
+import { DiaryBook, type BookPage } from './DiaryBook';
 
 // ───────── 日記 ─────────
 export function DiaryApp({ startId, compact }: { startId?: string; compact?: boolean }) {
   const all = useLive(() => db.all('diary'), [], []) ?? [];
-  const [editing, setEditing] = useState<string | 'new' | null>(startId ?? null);
+  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [reading, setReading] = useState<string | null>(startId ?? null);
+  const backToBook = useRef<string | null>(null);
   const [q, setQ] = useState('');
   const [mood, setMood] = useState<string>('');
   const [fav, setFav] = useState(false);
@@ -28,13 +31,24 @@ export function DiaryApp({ startId, compact }: { startId?: string; compact?: boo
   const list = all.filter((d) => (!q || (d.title + d.content + d.tags.join(' ')).toLowerCase().includes(q.toLowerCase())) && (!mood || d.mood === mood) && (!fav || d.isFavorite))
     .sort((a, b) => (asc ? 1 : -1) * (a.date.localeCompare(b.date) || a.createdAt - b.createdAt));
   const drafts = list.filter((d) => d.isDraft), done = list.filter((d) => !d.isDraft);
-  if (editing) return <DiaryEditor id={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />;
+  const pages: BookPage[] = done.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((d) => ({
+    id: d.id, date: d.date, title: d.title, content: d.content, photoIds: d.photoIds, favorite: d.isFavorite,
+    meta: [TEMPLATES[d.template].label, moodLabel(d.mood), d.tags.map((t) => `#${t}`).join(' ')].filter(Boolean).join('　'),
+  }));
+  if (editing) return <DiaryEditor id={editing === 'new' ? undefined : editing} onClose={() => { setEditing(null); if (backToBook.current) { setReading(backToBook.current); backToBook.current = null; } }} />;
+  const book = reading && pages.some((p) => p.id === reading) ? (
+    <DiaryBook pages={pages} startId={reading} title="我的日記本" onClose={() => setReading(null)}
+      onFavorite={(id) => toggleFavorite(id)}
+      onEdit={(id) => { backToBook.current = id; setReading(null); setEditing(id); }} />
+  ) : null;
   return (
     <div className="stack" data-testid="diary-app">
+      {book}
       <div className="row">
         <input className="input" placeholder="搜尋日記…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜尋日記" />
         <button className="btn small primary" onClick={() => setEditing('new')} data-testid="new-diary">＋ 新日記</button>
       </div>
+      {pages.length > 0 && <button className="btn pink block" onClick={() => setReading(pages[pages.length - 1].id)} data-testid="open-diary-book">📖 翻閱日記本（{pages.length} 頁）</button>}
       <div className="chips">
         <button className={'chip' + (fav ? ' on' : '')} onClick={() => setFav(!fav)}>★ 收藏</button>
         <button className="chip" onClick={() => setAsc(!asc)}>{asc ? '舊→新' : '新→舊'}</button>
@@ -45,7 +59,7 @@ export function DiaryApp({ startId, compact }: { startId?: string; compact?: boo
       </div>
       {drafts.length > 0 && <div><b className="small">草稿</b>{drafts.map((d) => <DiaryRow key={d.id} d={d} onOpen={() => setEditing(d.id)} compact={compact} />)}</div>}
       {done.length === 0 ? <Empty icon="journal">{all.length ? '沒有符合的日記' : '還沒有日記。今天發生了什麼小事，是你想替未來的自己留下來的？'}</Empty>
-        : <div className="list" data-testid="diary-list">{done.map((d) => <DiaryRow key={d.id} d={d} onOpen={() => setEditing(d.id)} compact={compact} />)}</div>}
+        : <div className="list" data-testid="diary-list">{done.map((d) => <DiaryRow key={d.id} d={d} onOpen={() => setReading(d.id)} compact={compact} />)}</div>}
     </div>
   );
 }
