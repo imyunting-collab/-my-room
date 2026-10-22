@@ -110,6 +110,30 @@ export async function placeFurniture(id: string, roomId: RoomId, x: number, y: n
     await t.store('ownedFurniture').put({ ...f, roomId, ...furniturePos(def, x, y) });
   });
 }
+export async function toggleFlip(kind: 'furn' | 'dev', id: string) {
+  if (kind === 'furn') {
+    await db.tx(['ownedFurniture'], 'readwrite', async (t) => { const f = await t.store('ownedFurniture').get(id); if (f) await t.store('ownedFurniture').put({ ...f, flip: !f.flip }); });
+  } else {
+    await db.tx(['ownedDevices'], 'readwrite', async (t) => { const d = await t.store('ownedDevices').get(id); if (d) await t.store('ownedDevices').put({ ...d, flip: !d.flip }); });
+  }
+}
+
+// The window is part of the room, not a piece of furniture, so its layout lives in meta.
+export interface WindowLayout { x: number; y: number; flip: boolean }
+export const WINDOW_W = 52, WINDOW_H = 44;
+export const DEFAULT_WINDOW: Record<RoomId, WindowLayout> = { bedroom: { x: 54, y: 66, flip: false }, study: { x: 76, y: 62, flip: false } };
+export function windowPos(x: number, y: number) {
+  return { x: Math.round(clamp(x, WINDOW_W / 2 + 2, ROOM_W - WINDOW_W / 2 - 2)), y: Math.round(clamp(y, WINDOW_H + 4, FLOOR_Y - 4)) };
+}
+export async function getWindowLayout(room: RoomId): Promise<WindowLayout> {
+  return { ...DEFAULT_WINDOW[room], ...(await db.getKV<Partial<WindowLayout> | null>('meta', `window:${room}`, null) ?? {}) };
+}
+export async function setWindowLayout(room: RoomId, patch: Partial<WindowLayout> | null) {
+  if (patch === null) return db.setKV('meta', `window:${room}`, null);
+  const cur = await getWindowLayout(room);
+  const next = { ...cur, ...patch };
+  return db.setKV('meta', `window:${room}`, { ...next, ...windowPos(next.x, next.y) });
+}
 export async function storeFurniture(id: string) {
   await db.tx(['ownedFurniture'], 'readwrite', async (t) => {
     const f = await t.store('ownedFurniture').get(id);

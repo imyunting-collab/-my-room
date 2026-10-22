@@ -15,7 +15,7 @@ export const PAL: Record<FurnStyle, Pal> = {
 
 export interface ShelfBook { color: string; finished: boolean; h: number }
 
-export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boolean; books?: ShelfBook[]; rows?: number; now?: Date } = {}): { url: string; w: number; h: number } {
+export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boolean; books?: ShelfBook[]; rows?: number; now?: Date; frame?: number } = {}): { url: string; w: number; h: number } {
   const c = PAL[def.style];
   let w = def.w, h = def.h;
   if (def.category === 'bookshelf') {
@@ -27,7 +27,7 @@ export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boo
     return { url: sprite(key, w, h, (p) => drawShelf(p, c, w, rows, books)), w, h };
   }
   const minute = opts.now ? `${opts.now.getHours()}:${opts.now.getMinutes()}` : '';
-  const key = `furn|${def.id}|${opts.on ? 1 : 0}|${opts.open ? 1 : 0}|${def.category === 'clock' ? minute : ''}`;
+  const key = `furn|${def.id}|${opts.on ? 1 : 0}|${opts.open ? 1 : 0}|${def.category === 'clock' ? minute : ''}|${opts.frame ?? 0}`;
   return { url: sprite(key, w, h, (p) => drawFurniture(p, def, c, opts)), w, h };
 }
 
@@ -75,9 +75,75 @@ function clockHands(p: Painter, cx: number, cy: number, r: number, now: Date, co
   p.line(cx, cy, Math.round(cx + Math.sin(hAng) * (r - 2)), Math.round(cy - Math.cos(hAng) * (r - 2)), col);
 }
 
-function drawFurniture(p: Painter, def: FurnitureDef, c: Pal, o: { on?: boolean; open?: boolean; now?: Date }) {
+/** Blanket that is drawn OVER a sleeping character, same size/anchor as the bed sprite. */
+export function bedBlanketURL(def: FurnitureDef): string {
+  const { w, h } = def;
+  const blanket = def.style === 'forest' ? '#6d8765' : def.style === 'cream' ? '#f3d9c7' : '#e8b8b2';
+  return sprite(`blanket|${def.id}`, w, h, (p) => {
+    // folded-down top edge, then the blanket falling over the side of the mattress
+    p.r(22, 13, w - 26, 3, '#fbf7ef'); p.r(22, 13, w - 26, 1, '#ffffff');
+    p.r(22, 16, w - 26, 12, blanket);
+    p.r(22, 16, w - 26, 1, shade(blanket, 0.25));
+    p.r(22, 27, w - 26, 1, shade(blanket, -0.2));
+    p.r(22, 28, w - 26, 4, shade(blanket, -0.12)); p.r(22, 31, w - 26, 1, shade(blanket, -0.25));
+    if (def.style === 'forest') for (let x = 24; x < w - 5; x += 4) p.r(x, 17, 1, 11, shade(blanket, -0.15));
+    else for (let x = 26; x < w - 6; x += 6) for (let y = 19; y < 27; y += 4) p.p(x, y, shade(blanket, 0.35));
+    // soft lump where the knees are
+    p.rows([[15, 34, 44], [14, 37, 41]], shade(blanket, 0.12));
+  });
+}
+
+function drawFurniture(p: Painter, def: FurnitureDef, c: Pal, o: { on?: boolean; open?: boolean; now?: Date; frame?: number }) {
   const { w, h } = def;
   switch (def.category) {
+    case 'cabinet': {
+      if (def.id === 'cabinet_drawer') {
+        p.r(0, 0, w, 4, c.light); p.r(0, 3, w, 1, c.dark);
+        p.r(1, 4, w - 2, h - 8, c.main); p.r(1, 4, 1, h - 8, c.light);
+        const n = 4, dh = Math.floor((h - 10) / n);
+        for (let i = 0; i < n; i++) {
+          const y = 5 + i * dh;
+          p.r(3, y, w - 6, dh - 1, shade(c.main, 0.06)); p.r(3, y + dh - 2, w - 6, 1, c.dark);
+          p.r(w / 2 - 3, y + Math.floor(dh / 2) - 1, 6, 2, c.dark); p.r(w / 2 - 2, y + Math.floor(dh / 2) - 1, 4, 1, '#c9a227');
+        }
+        p.r(1, h - 4, w - 2, 1, c.dark); p.r(2, h - 3, 3, 3, c.dark); p.r(w - 5, h - 3, 3, 3, c.dark);
+      } else {
+        p.r(0, 0, w, 4, c.light); p.r(0, 3, w, 1, c.dark);
+        p.r(1, 4, w - 2, h - 8, c.main); p.r(1, 4, 1, h - 8, c.light);
+        // two doors + an open cubby with books
+        p.r(3, 6, 12, h - 12, shade(c.main, 0.06)); p.r(14, 6, 1, h - 12, c.dark); p.r(12, h / 2 - 2, 1, 4, c.dark);
+        p.r(16, 6, 1, h - 12, c.dark);
+        p.r(17, 6, w - 20, h - 12, shade(c.dark, -0.2));
+        [['#c96f4a', 9], ['#6d8765', 11], ['#e8b8b2', 8], ['#8fcbd6', 10]].forEach(([col, bh], i) => { p.r(19 + i * 4, h - 6 - (bh as number), 3, bh as number, col as string); p.r(19 + i * 4, h - 6 - (bh as number), 1, bh as number, shade(col as string, 0.2)); });
+        p.r(1, h - 4, w - 2, 1, c.dark); p.r(2, h - 3, 3, 3, c.dark); p.r(w - 5, h - 3, 3, 3, c.dark);
+      }
+      break;
+    }
+    case 'recordPlayer': {
+      const playing = !!o.on, fr = o.frame ?? 0;
+      // wooden stand with record crate
+      p.r(1, 16, w - 2, 3, c.light); p.r(1, 18, w - 2, 1, c.dark);
+      p.r(2, 19, w - 4, h - 22, c.main); p.r(2, 19, 1, h - 22, c.light);
+      p.r(4, 21, w - 8, h - 27, shade(c.dark, -0.2));
+      ['#c84a3e', '#2b2a2c', '#f3c46b', '#6d8765', '#2b2a2c'].forEach((col, i) => p.r(5 + i * 4, 23, 3, h - 30, col));
+      p.r(2, h - 3, 3, 3, c.dark); p.r(w - 5, h - 3, 3, 3, c.dark);
+      // turntable case
+      p.r(0, 6, w, 10, '#5a3d30'); p.r(0, 6, w, 1, '#7e5a48'); p.r(1, 15, w - 2, 1, '#33231b');
+      // record (seen at an angle → flat ellipse)
+      p.rows([[7, 5, 16], [8, 3, 18], [9, 2, 19], [10, 2, 19], [11, 3, 18], [12, 5, 16]], '#1a1a1a');
+      p.r(9, 9, 4, 2, playing ? '#c84a3e' : '#a33a30');
+      const hl = playing ? (fr % 2 ? [[8, 14], [12, 7]] : [[8, 6], [12, 15]]) : [[8, 6], [12, 15]];
+      hl.forEach(([y, x]) => p.r(x, y, 2, 1, '#555'));
+      // tone arm
+      p.r(w - 5, 7, 2, 2, '#c9c9c9');
+      if (playing) { p.line(w - 4, 8, 16, 11, '#c9c9c9'); p.p(16, 11, '#e0e0e0'); }
+      else { p.line(w - 4, 8, w - 4, 13, '#c9c9c9'); }
+      // little knob + light
+      p.r(w - 7, 13, 2, 1, '#c9a227'); p.p(2, 13, playing ? '#9cf0a8' : '#3a5560');
+      // horn-less lid hinge
+      p.r(0, 4, w, 2, '#33231b');
+      break;
+    }
     case 'desk':
       p.r(0, 0, w, 4, c.light); p.r(0, 3, w, 1, c.dark);
       p.r(2, 4, w - 4, 6, c.main); p.r(w - 20, 5, 16, 4, c.dark); p.r(w - 13, 6, 3, 1, c.light);

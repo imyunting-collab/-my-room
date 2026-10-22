@@ -343,3 +343,13 @@ a { color: var(--wood); }
 .pv-prev, .pv-next { position: absolute; top: 50%; transform: translateY(-50%); }
 .pv-prev { left: 8px; } .pv-next { right: 8px; }
 .thumb-btn { padding: 0; border: 0; background: none; cursor: zoom-in; }
+
+/* layering: keep the scene's z-indexes inside the scene, speech always on top */
+.scene { isolation: isolate; }
+.scene .bubble { z-index: 9000; }
+.scene .hearts, .scene .zzz { z-index: 8900 !important; }
+.scene .scene-hud { z-index: 9100; }
+.place-hint { z-index: 9200; }
+.scene .obj.flipped { transform: translate(-50%, -100%) scaleX(-1); }
+.scene .music-note { position: absolute; pointer-events: none; z-index: 8800; font-size: 18px; font-weight: 900; color: #c96f4a; text-shadow: 0 0 2px #fffaf1, 0 0 2px #fffaf1; animation: noteFloat 2.4s ease-out forwards; }
+@keyframes noteFloat { 0% { transform: translate(-50%, 0) rotate(-8deg); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(calc(-50% + 14px), -46px) rotate(10deg); opacity: 0; } }

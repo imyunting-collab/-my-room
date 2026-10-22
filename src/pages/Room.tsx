@@ -4,11 +4,13 @@ import { useDayPart, useLive, useReducedMotion } from '../hooks';
 import { navigate } from '../router';
 import { useBooks, useEquip } from '../state';
 import { characterURL, CHAR_W, type Expression, type Pose, type View } from '../sprites/characters';
-import { doorURL, furnitureURL, deviceURL, windowURL, foodURL } from '../sprites/furniture';
+import { bedBlanketURL, doorURL, furnitureURL, deviceURL, windowURL, foodURL } from '../sprites/furniture';
+import { playMusic, stopMusic } from '../lib/music';
+import { opaqueAt, solidObjBelow } from '../lib/hit';
 import { sprite } from '../sprites/pixel';
 import { deviceById, furnById, FURN_CAT_LABEL, GIFTS, foodById, type FurnitureDef } from '../data/catalog';
 import { shelfBooks, shelfRows } from '../components/shelf';
-import { devicePos, furniturePos, placeDevice, placeFurniture, storeFurniture, swapFurniture, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
+import { DEFAULT_WINDOW, devicePos, furniturePos, getWindowLayout, placeDevice, placeFurniture, setWindowLayout, storeFurniture, swapFurniture, toggleFlip, windowPos, WINDOW_W, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
 import { endVisit, getVisit, giveGift, logInteraction, readTogether, saveMemory, shareMeal, startVisit } from '../services/love';
 import { checkAchievements } from '../services/reading';
 import { VISIT_LINES, type Line } from '../data/dialogue';
@@ -18,7 +20,6 @@ import { clamp, DAYPART_LABEL, pick, sleep, timeHM } from '../lib/util';
 import type { OwnedDevice, OwnedFurniture, RoomId } from '../db/types';
 
 // ───────── scene constants ─────────
-const WINDOW: Record<RoomId, { x: number; y: number }> = { bedroom: { x: 54, y: 66 }, study: { x: 76, y: 62 } };
 const BALCONY_DOOR: Record<RoomId, { x: number } | null> = { bedroom: null, study: { x: 18 } };
 const ENTRY_DOOR: Record<RoomId, { x: number } | null> = { bedroom: { x: 176 }, study: null };
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
@@ -39,7 +40,7 @@ function roomBg(room: RoomId) {
 
 const TINT: Record<string, string> = { dawn: 'rgba(255,205,180,0.25)', day: 'rgba(255,255,255,0)', dusk: 'rgba(255,160,90,0.28)', night: 'rgba(60,80,150,0.45)', midnight: 'rgba(30,35,80,0.6)' };
 
-interface Actor { x: number; y: number; pose: Pose; view: View; flip: boolean; expr: Expression; z?: number; dur: number; lying?: boolean; hidden?: boolean }
+interface Actor { x: number; y: number; pose: Pose; view: View; flip: boolean; expr: Expression; z?: number; dur: number; lying?: boolean; hidden?: boolean; bedId?: string; bedFlip?: boolean }
 interface Bubble { id: number; who: '99' | 'chen'; text: string }
 
 // persists across navigation within the session
@@ -59,6 +60,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   const visit = useLive(getVisit, [], { active: false });
   const food = useLive(() => db.all('foodInventory'), [], []) ?? [];
   const diary = (useLive(() => db.all('diary'), [], []) ?? []).filter((d) => !d.isDraft);
+  const win = useLive(() => getWindowLayout(room), [room], DEFAULT_WINDOW[room]) ?? DEFAULT_WINDOW[room];
 
   const placed = furniture.filter((f) => f.roomId === room);
   const placedDev = devices.filter((d) => d.isPlaced && d.roomId === room);
@@ -73,10 +75,19 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   const [selectedDev, setSelectedDev] = useState<OwnedDevice | null>(null);
   const [placing, setPlacing] = useState<{ kind: 'furn' | 'dev'; id: string; name: string } | null>(null);
   const [storage, setStorage] = useState(false);
+  const [winMenu, setWinMenu] = useState(false);
+  // 黑膠唱片機
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [spin, setSpin] = useState(0);
+  const [notes, setNotes] = useState<{ id: number; x: number; y: number; ch: string }[]>([]);
   // 擺設模式：拖曳任何家具／設備移動，點一下開選單
   const [arrange, setArrange] = useState(false);
-  const [drag, setDrag] = useState<{ kind: 'furn' | 'dev'; id: string; x: number; y: number } | null>(null);
-  const dragStart = useRef<{ kind: 'furn' | 'dev'; id: string; px: number; py: number; ox: number; oy: number; moved: boolean; pointerId: number } | null>(null);
+  type DragKind = 'furn' | 'dev' | 'win';
+  const [drag, setDrag] = useState<{ kind: DragKind; id: string; x: number; y: number } | null>(null);
+  const dragStart = useRef<{ kind: DragKind; id: string; px: number; py: number; ox: number; oy: number; moved: boolean; pointerId: number } | null>(null);
+  // curtains hanging on the window travel with it
+  const attachedCurtains = (wx: number, wy: number) => placed.filter((f) => def(f).category === 'curtain' && Math.abs(f.x - wx) <= 10 && Math.abs(f.y - wy) <= 16);
+  const [attached, setAttached] = useState<string[]>([]);
   const [lampOff, setLampOff] = useState<Record<string, boolean>>({});
   const [projectorOn, setProjectorOn] = useState(false);
   const [picker, setPicker] = useState<null | 'meal' | 'read' | 'gift' | 'diary'>(null);
@@ -88,7 +99,20 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
 
   useEffect(() => { if (initial) setRoom(initial); }, [initial]);
   useEffect(() => { mem99 = { room, x: me.x, y: me.y }; }, [room, me.x, me.y]);
-  useEffect(() => () => { if (walkTimer.current) clearInterval(walkTimer.current); }, []);
+  useEffect(() => () => { if (walkTimer.current) clearInterval(walkTimer.current); stopMusic(); }, []);
+  // stop the music if the record player is put away / moved to another room
+  useEffect(() => { if (playing && !furniture.some((f) => f.id === playing && f.roomId === room)) { stopMusic(); setPlaying(null); } }, [furniture, playing, room]);
+  useEffect(() => {
+    if (!playing) return;
+    const t1 = setInterval(() => setSpin((v) => v + 1), 350);
+    const t2 = setInterval(() => {
+      const f = furniture.find((o) => o.id === playing); if (!f) return;
+      const n = { id: Math.random(), x: f.x + (Math.random() * 10 - 5), y: f.y - 30, ch: pick(['♪', '♫', '♩', '♬']) };
+      setNotes((a) => [...a.slice(-6), n]);
+      setTimeout(() => setNotes((a) => a.filter((x) => x.id !== n.id)), 2400);
+    }, 800);
+    return () => { clearInterval(t1); clearInterval(t2); };
+  }, [playing, furniture]);
 
   // 陳卷毛 appears when a visit is active
   useEffect(() => {
@@ -114,7 +138,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
     const dur = reduce ? 0 : Math.min(2.2, dist / 70);
     const flip = tx < from.x;
     let frame = 0;
-    setA((a) => ({ ...a, lying: false, x: tx, y: ty, dur, pose: 'walk1', view: 'side', flip, z: undefined }));
+    setA((a) => ({ ...a, lying: false, bedId: undefined, x: tx, y: ty, dur, pose: 'walk1', view: 'side', flip, z: undefined }));
     const t = setInterval(() => { frame++; setA((a) => ({ ...a, pose: frame % 2 ? 'walk2' : 'walk1' })); }, 170);
     return new Promise((res) => setTimeout(() => { clearInterval(t); setA((a) => ({ ...a, pose: 'stand', view: 'side', dur: 0 })); res(); }, dur * 1000 + 30));
   }
@@ -156,13 +180,29 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   const def = (f: OwnedFurniture) => furnById.get(f.defId)!;
 
   // ───────── 擺設模式拖曳 ─────────
-  function dragDown(e: RPE<HTMLElement>, kind: 'furn' | 'dev', id: string, x: number, y: number) {
+  /** Taps on a transparent pixel go to the object underneath (or the floor). Returns true if handled that way. */
+  function passClick(e: { currentTarget: Element; clientX: number; clientY: number; stopPropagation: () => void }) {
+    if (opaqueAt(e.currentTarget, e.clientX, e.clientY)) return false;
+    e.stopPropagation();
+    const below = solidObjBelow(e.currentTarget, e.clientX, e.clientY);
+    if (below) below.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY }));
+    else onSceneClick(e);
+    return true;
+  }
+  function dragDown(e: RPE<HTMLElement>, kind: DragKind, id: string, x: number, y: number) {
     if (!arrange || placing) return;
+    if (!opaqueAt(e.currentTarget, e.clientX, e.clientY)) {
+      const below = solidObjBelow(e.currentTarget, e.clientX, e.clientY);
+      e.stopPropagation();
+      if (below) below.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: true }));
+      return;
+    }
     e.stopPropagation();
     e.preventDefault();
     const p = sceneCoords(e);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     dragStart.current = { kind, id, px: p.x, py: p.y, ox: x, oy: y, moved: false, pointerId: e.pointerId };
+    setAttached(kind === 'win' ? attachedCurtains(x, y).map((f) => f.id) : []);
   }
   function dragMove(e: RPE<HTMLElement>) {
     const s = dragStart.current;
@@ -173,6 +213,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
     s.moved = true;
     let pos: { x: number; y: number };
     if (s.kind === 'furn') { const f = furniture.find((o) => o.id === s.id); if (!f) return; pos = furniturePos(def(f), s.ox + dx, s.oy + dy); }
+    else if (s.kind === 'win') pos = windowPos(s.ox + dx, s.oy + dy);
     else pos = devicePos(s.ox + dx, s.oy + dy);
     setDrag({ kind: s.kind, id: s.id, ...pos });
   }
@@ -184,19 +225,18 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
     if (!s.moved) {
       setDrag(null);
       if (s.kind === 'furn') { const f = furniture.find((o) => o.id === s.id); if (f) setSelected(f); }
+      else if (s.kind === 'win') setWinMenu(true);
       else { const d = devices.find((o) => o.id === s.id); if (d) setSelectedDev(d); }
       return;
     }
     const d = drag && drag.id === s.id ? drag : null;
     if (!d) return;
-    const save = s.kind === 'furn' ? placeFurniture(s.id, room, d.x, d.y) : placeDevice(s.id, room, d.x, d.y);
+    const moveCurtains = async () => { for (const c of placed.filter((f) => attached.includes(f.id))) await placeFurniture(c.id, room, c.x + (d.x - s.ox), c.y + (d.y - s.oy)); };
+    const save = s.kind === 'furn' ? placeFurniture(s.id, room, d.x, d.y) : s.kind === 'win' ? Promise.all([setWindowLayout(room, { x: d.x, y: d.y }), moveCurtains()]) : placeDevice(s.id, room, d.x, d.y);
     save.catch((err) => toast((err as Error).message, 'error')).finally(() => setTimeout(() => setDrag((cur) => (cur && cur.id === s.id ? null : cur)), 120));
   }
-  const dragProps = (kind: 'furn' | 'dev', id: string, x: number, y: number) => arrange ? {
+  const dragProps = (kind: DragKind, id: string, x: number, y: number) => arrange ? {
     onPointerDown: (e: RPE<HTMLElement>) => dragDown(e, kind, id, x, y),
-    onPointerMove: dragMove,
-    onPointerUp: dragUp,
-    onPointerCancel: () => { dragStart.current = null; setDrag(null); },
   } : {};
   const nearest = (cat: string) => placed.filter((f) => def(f).category === cat).sort((a, b) => Math.abs(a.x - me.x) - Math.abs(b.x - me.x))[0];
 
@@ -212,9 +252,10 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       }); break;
       case 'sofa': await guard(async () => { await walkMe(f.x - 10, f.y + 6); setMe((a) => ({ ...a, x: f.x - 10, y: f.y - 4, pose: 'sit', view: 'front', z: f.y + 1 })); }); break;
       case 'sleep': await guard(async () => {
-        if (me.lying) { setMe((a) => ({ ...a, lying: false, pose: 'stand', view: 'front', y: f.y + 8, expr: 'smile', z: undefined })); say('99', '睡飽了！'); return; }
+        if (me.lying) { setMe((a) => ({ ...a, lying: false, bedId: undefined, pose: 'stand', view: 'front', y: f.y + 8, expr: 'smile', z: undefined })); say('99', '睡飽了！'); return; }
         await approach();
-        setMe((a) => ({ ...a, x: f.x + 6, y: f.y - 12, lying: true, pose: 'stand', view: 'front', expr: 'closed', z: f.y + 1 }));
+        setMe((a) => ({ ...a, x: f.flip ? f.x + 1 : f.x - 1, y: f.y - 10, lying: true, bedId: f.id, bedFlip: !!f.flip, pose: 'stand', view: 'front', expr: 'closed', z: f.y + 1 }));
+        say('99', '晚安…');
       }); break;
       case 'fridge': await guard(async () => { await approach(); setMe((a) => ({ ...a, pose: 'takeFood', view: 'front' })); setOpenFridge(f.id); await sleep(650); navigate('/fridge'); }); break;
       case 'wardrobe': await guard(async () => { await approach(); setMe((a) => ({ ...a, view: 'back' })); await sleep(400); navigate('/wardrobe'); }); break;
@@ -222,6 +263,15 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       case 'lamp': setLampOff((s) => ({ ...s, [f.id]: !(s[f.id] ?? !night) })); break;
       case 'projector': setProjectorOn((v) => !v); break;
       case 'plantShelf': navigate('/balcony'); break;
+      case 'music': await guard(async () => {
+        if (playing === f.id) { stopMusic(); setPlaying(null); say('99', '先停一下～'); return; }
+        await approach();
+        setMe((a) => ({ ...a, view: 'back' }));
+        await sleep(300);
+        playMusic(); setPlaying(f.id);
+        setMe((a) => ({ ...a, view: 'front', expr: 'happy' }));
+        say('99', pick(['放首歌～', '這張唱片好好聽', '♪ 啦啦啦']));
+      }); break;
       default: setSelected(f);
     }
   }
@@ -408,7 +458,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
     const scale = who === 'chen' ? 1.07 : 1;
     return (
       <div key={who} className="actor" data-testid={who === 'chen' ? 'actor-chen' : 'actor-99'} data-pose={a.pose}
-        style={{ left: pct(a.x, ROOM_W), top: pct(a.y, ROOM_H), width: pct((CHAR_W + 2) * scale, ROOM_W), zIndex: Math.round((a.z ?? a.y) * 10) + (who === '99' ? 1 : 0), transitionDuration: `${a.dur}s`, transform: a.lying ? 'translate(-50%,-60%) rotate(-90deg)' : undefined }}>
+        style={{ left: pct(a.x, ROOM_W), top: pct(a.y, ROOM_H), width: pct((CHAR_W + 2) * scale, ROOM_W), zIndex: Math.round((a.z ?? a.y) * 10) + (who === '99' ? 1 : 0), transitionDuration: `${a.dur}s`, transform: a.lying ? `translate(-50%,-60%) rotate(${a.bedFlip ? 90 : -90}deg)` : undefined }}>
         <img src={url} alt={who === '99' ? '99' : '陳卷毛'} />
       </div>
     );
@@ -426,24 +476,32 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
         <button onClick={() => navigate('/phone')}>📱 手機</button>
       </div>
       <div className="scene-wrap">
-        <div className={'scene' + (arrange ? ' arrange' : '')} ref={sceneRef} onClick={(e) => onSceneClick(e)} data-testid="room-scene" data-room={room}>
+        <div className={'scene' + (arrange ? ' arrange' : '')} ref={sceneRef} onClick={(e) => onSceneClick(e)} data-testid="room-scene" data-room={room}
+          onPointerMove={dragMove} onPointerUp={dragUp} onPointerCancel={() => { dragStart.current = null; setDrag(null); }}>
           <img className="layer px" src={roomBg(room)} alt="" style={{ width: '100%', height: '100%' }} />
           {/* window with real-time sky */}
-          <img className="obj px" src={windowURL(part)} alt={`窗外：${DAYPART_LABEL[part]}`} style={objStyle(WINDOW[room].x, WINDOW[room].y, 52, 2)} onClick={(e) => { e.stopPropagation(); toast(`現在是${DAYPART_LABEL[part]} ${timeHM(now)}`, 'info'); }} />
+          {(() => {
+            const dragging = drag?.kind === 'win';
+            const wx = dragging ? drag.x : win.x, wy = dragging ? drag.y : win.y;
+            return <img className={'obj px' + (win.flip ? ' flipped' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} draggable={false} src={windowURL(part)} alt={`窗外：${DAYPART_LABEL[part]}`} data-testid="room-window"
+              style={objStyle(wx, wy, WINDOW_W, dragging ? 2800 : 2)} {...dragProps('win', 'window', win.x, win.y)}
+              onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; toast(`現在是${DAYPART_LABEL[part]} ${timeHM(now)}`, 'info'); }} />;
+          })()}
           {BALCONY_DOOR[room] && <img className="obj px" src={doorURL('balcony')} alt="陽台入口" data-testid="balcony-door" style={objStyle(BALCONY_DOOR[room]!.x, FLOOR_Y + 2, 28, 3)} onClick={(e) => { e.stopPropagation(); navigate('/balcony'); }} />}
           {ENTRY_DOOR[room] && <img className="obj px" src={doorURL('entry')} alt="大門" style={objStyle(ENTRY_DOOR[room]!.x, FLOOR_Y + 2, 28, 3)} onClick={(e) => { e.stopPropagation(); if (!visit?.active) toast('想見陳卷毛的話，可以按「邀請陳卷毛」', 'info'); }} />}
           {placed.map((f) => {
             const d = def(f);
             const isShelf = d.category === 'bookshelf';
             const perRow = d.id === 'bookshelf_tall' ? 12 : 9;
-            const { url, w } = furnitureURL(d, { on: (d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f), open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
+            const { url, w } = furnitureURL(d, { on: ((d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f)) || playing === f.id, frame: playing === f.id ? spin % 2 : 0, open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
             const dragging = drag?.kind === 'furn' && drag.id === f.id;
-            const fx = dragging ? drag.x : f.x, fy = dragging ? drag.y : f.y;
+            const riding = drag?.kind === 'win' && attached.includes(f.id);
+            const fx = dragging ? drag.x : riding ? f.x + (drag.x - win.x) : f.x, fy = dragging ? drag.y : riding ? f.y + (drag.y - win.y) : f.y;
             const z = dragging ? 2800 : d.placement === 'wall' ? 4 : d.category === 'rug' ? 5 : d.placement === 'surface' ? Math.round(fy * 10) + 400 : Math.round(fy * 10);
             return (
-              <img key={f.id} draggable={false} className={'obj px' + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
+              <img key={f.id} draggable={false} className={'obj px' + (f.flip ? ' flipped' : '') + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
                 style={objStyle(fx, fy, w, z)} {...dragProps('furn', f.id, f.x, f.y)}
-                onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} />
+                onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} />
             );
           })}
           {placedDev.map((d) => {
@@ -451,7 +509,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             const { url, w } = deviceURL(dd, night || dd.deviceType !== 'phone');
             const dragging = drag?.kind === 'dev' && drag.id === d.id;
             const dx = dragging ? drag.x : d.x, dy = dragging ? drag.y : d.y;
-            return <img key={d.id} draggable={false} className={'obj px' + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={dd.name} data-testid={`device-${dd.deviceType}`} style={objStyle(dx, dy, w, dragging ? 2850 : Math.round(dy * 10) + 500)} {...dragProps('dev', d.id, d.x, d.y)} onClick={(e) => { e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; setSelectedDev(d); }} />;
+            return <img key={d.id} draggable={false} className={'obj px' + (d.flip ? ' flipped' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={dd.name} data-testid={`device-${dd.deviceType}`} style={objStyle(dx, dy, w, dragging ? 2850 : Math.round(dy * 10) + 500)} {...dragProps('dev', d.id, d.x, d.y)} onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; setSelectedDev(d); }} />;
           })}
           {/* lamp glow */}
           {placed.filter((f) => (def(f).category === 'lamp' || def(f).category === 'readingLamp') && lampOn(f)).map((f) => (
@@ -460,8 +518,15 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
           {projectorOn && nearest('projector') && <div className="screen-glow" style={{ left: pct(110, ROOM_W), top: pct(20, ROOM_H), width: pct(66, ROOM_W), height: pct(44, ROOM_H), zIndex: 6 }} />}
           {actorEl(me, '99')}
           {actorEl(chen, 'chen')}
+          {(() => {
+            if (!me.lying || !me.bedId) return null;
+            const b = placed.find((f) => f.id === me.bedId); if (!b) return null;
+            const bd = def(b);
+            return <img className={'obj px' + (b.flip ? ' flipped' : '')} src={bedBlanketURL(bd)} alt="" data-testid="blanket" style={{ ...objStyle(b.x, b.y, bd.w, Math.round((b.y + 1) * 10) + 5), pointerEvents: 'none' }} />;
+          })()}
+          {notes.map((n) => <div key={n.id} className="music-note" style={{ left: pct(n.x, ROOM_W), top: pct(n.y, ROOM_H) }}>{n.ch}</div>)}
           {me.lying && <div className="zzz" style={{ left: pct(me.x + 10, ROOM_W), top: pct(me.y - 30, ROOM_H), zIndex: 4000 }}>Zzz</div>}
-          {bubbles.map((b) => { const a = b.who === '99' ? me : chen; return <div key={b.id} className="bubble" style={{ left: pct(clamp(a.x, 40, ROOM_W - 40), ROOM_W), top: pct(a.y - 52, ROOM_H) }}>{b.text}</div>; })}
+          {bubbles.map((b) => { const a = b.who === '99' ? me : chen; return <div key={b.id} className="bubble" style={{ left: pct(clamp(a.x, 40, ROOM_W - 40), ROOM_W), top: pct(a.lying ? a.y - 30 : a.y - 52, ROOM_H) }}>{b.text}</div>; })}
           {hearts.map((h) => <div key={h.id} className="hearts" style={{ left: pct(h.x, ROOM_W), top: pct(h.y, ROOM_H) }}>{h.ch}</div>)}
           <div className="tint" style={{ background: TINT[part], zIndex: 2900 }} />
           <div className="scene-hud">
@@ -512,6 +577,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       <Sheet open={!!selected} onClose={() => setSelected(null)} title={selected ? def(selected).name : ''}>
         {selected && <FurnitureMenu f={selected} d={def(selected)} owned={furniture} onClose={() => setSelected(null)}
           onMove={() => { setPlacing({ kind: 'furn', id: selected.id, name: def(selected).name }); setSelected(null); }}
+          onFlip={() => { const f = selected; setSelected(null); run(() => toggleFlip('furn', f.id)); }}
           onUse={() => { const f = selected; setSelected(null); if (def(f).interaction === 'shelf') navigate('/bookshelf'); else interact(f); }} />}
       </Sheet>
       <Sheet open={!!selectedDev} onClose={() => setSelectedDev(null)} title={selectedDev ? deviceById.get(selectedDev.defId)!.name : ''}>
@@ -522,8 +588,18 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
               <button className="btn" onClick={() => { setPlacing({ kind: 'dev', id: selectedDev.id, name: deviceById.get(selectedDev.defId)!.name }); setSelectedDev(null); }}>移動</button>
               <button className="btn" onClick={() => { const d = selectedDev; setSelectedDev(null); run(() => placeDevice(d.id, null), '已收進收納箱'); }}>收納</button>
             </div>
+            <button className="btn" onClick={() => { const d = selectedDev; setSelectedDev(null); run(() => toggleFlip('dev', d.id)); }} data-testid="flip-item">↔ 左右翻轉</button>
           </div>
         )}
+      </Sheet>
+      <Sheet open={winMenu} onClose={() => setWinMenu(false)} title="窗戶">
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>在擺設模式下可以直接拖曳窗戶換位置。</p>
+          <div className="grid2">
+            <button className="btn" onClick={() => { setWinMenu(false); run(() => setWindowLayout(room, { flip: !win.flip })); }} data-testid="flip-window">↔ 左右翻轉</button>
+            <button className="btn" onClick={() => { setWinMenu(false); run(() => setWindowLayout(room, null), '窗戶回到原位'); }}>回到原位</button>
+          </div>
+        </div>
       </Sheet>
       {/* storage box */}
       <Sheet open={storage} onClose={() => setStorage(false)} title="收納箱">
@@ -575,7 +651,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   );
 }
 
-function FurnitureMenu({ f, d, owned, onClose, onMove, onUse }: { f: OwnedFurniture; d: FurnitureDef; owned: OwnedFurniture[]; onClose: () => void; onMove: () => void; onUse: () => void }) {
+function FurnitureMenu({ f, d, owned, onClose, onMove, onUse, onFlip }: { f: OwnedFurniture; d: FurnitureDef; owned: OwnedFurniture[]; onClose: () => void; onMove: () => void; onUse: () => void; onFlip: () => void }) {
   const { run } = useAction();
   const alts = owned.filter((o) => !o.roomId && furnById.get(o.defId)?.category === d.category);
   const useLabel: Partial<Record<FurnitureDef['interaction'], string>> = { shelf: '看動態書架', clock: '', deco: '', desk: '', table: '' };
@@ -589,6 +665,7 @@ function FurnitureMenu({ f, d, owned, onClose, onMove, onUse }: { f: OwnedFurnit
         <button className="btn" onClick={onMove}>移動</button>
         <button className="btn" onClick={async () => { if (await confirmDialog(`把「${d.name}」收進收納箱？`)) { onClose(); run(() => storeFurniture(f.id), '已收進收納箱'); } }}>收納</button>
       </div>
+      <button className="btn" onClick={onFlip} data-testid="flip-item">↔ 左右翻轉</button>
       {alts.length > 0 && (
         <>
           <b className="small">更換成其他{FURN_CAT_LABEL[d.category]}</b>

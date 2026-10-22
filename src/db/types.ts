@@ -96,6 +96,8 @@ export interface OwnedFurniture {
   roomId: RoomId | null; // null = stored (收納)
   x: number;
   y: number;
+  /** mirrored left↔right */
+  flip?: boolean;
   purchasedAt: number;
 }
 
@@ -139,6 +141,7 @@ export interface OwnedDevice {
   roomId: RoomId | null;
   x: number;
   y: number;
+  flip?: boolean;
   purchasedAt: number;
 }
 

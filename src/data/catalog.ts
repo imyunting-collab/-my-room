@@ -8,11 +8,11 @@ export const STYLE_LABEL: Record<FurnStyle, string> = {
 
 export type FurnCategory =
   | 'desk' | 'chair' | 'bed' | 'clock' | 'bookshelf' | 'fridge' | 'wardrobe' | 'lamp' | 'rug' | 'curtain'
-  | 'plantShelf' | 'deco' | 'sofa' | 'table' | 'projector' | 'photoWall' | 'mug' | 'pillow' | 'readingLamp';
+  | 'plantShelf' | 'deco' | 'sofa' | 'table' | 'projector' | 'photoWall' | 'mug' | 'pillow' | 'readingLamp' | 'cabinet' | 'recordPlayer';
 export const FURN_CAT_LABEL: Record<FurnCategory, string> = {
   desk: '書桌', chair: '椅子', bed: '床', clock: '時鐘', bookshelf: '書櫃', fridge: '冰箱', wardrobe: '衣櫃', lamp: '桌燈',
   rug: '地毯', curtain: '窗簾', plantShelf: '植物架', deco: '裝飾品', sofa: '沙發', table: '餐桌', projector: '投影機',
-  photoWall: '照片牆', mug: '馬克杯', pillow: '抱枕', readingLamp: '閱讀燈',
+  photoWall: '照片牆', mug: '馬克杯', pillow: '抱枕', readingLamp: '閱讀燈', cabinet: '櫃子', recordPlayer: '唱片機',
 };
 
 export type Unlock =
@@ -29,7 +29,7 @@ export interface FurnitureDef {
   placement: 'floor' | 'wall' | 'surface';
   w: number; // sprite logical size
   h: number;
-  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf';
+  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf' | 'music';
   love?: boolean;
   unlock?: Unlock;
   starter?: { room: RoomId; x: number; y: number };
@@ -74,6 +74,10 @@ export const FURNITURE: FurnitureDef[] = [
   F({ id: 'deco_garland', name: '星星燈串', category: 'deco', style: 'candy', price: 30, placement: 'wall', w: 60, h: 10, interaction: 'deco' }),
   F({ id: 'deco_wallshelf', name: '牆上小層板', category: 'deco', style: 'wood', price: 28, placement: 'wall', w: 34, h: 14, interaction: 'deco' }),
   F({ id: 'deco_monstera', name: '大型龜背芋盆栽', category: 'deco', style: 'forest', price: 50, placement: 'floor', w: 22, h: 36, interaction: 'deco' }),
+  F({ id: 'recordplayer_wood', name: '復古黑膠唱片機', category: 'recordPlayer', style: 'wood', price: 90, placement: 'floor', w: 28, h: 36, interaction: 'music', desc: '點一下就會放音樂，唱片會轉、音符會飄出來。' }),
+  F({ id: 'cabinet_wood', name: '原木矮櫃', category: 'cabinet', style: 'wood', price: 55, placement: 'floor', w: 40, h: 26, interaction: 'deco' }),
+  F({ id: 'cabinet_drawer', name: '原木抽屜櫃', category: 'cabinet', style: 'wood', price: 65, placement: 'floor', w: 30, h: 42, interaction: 'deco' }),
+  F({ id: 'cabinet_cream', name: '奶油白矮櫃', category: 'cabinet', style: 'cream', price: 55, placement: 'floor', w: 40, h: 26, interaction: 'deco' }),
   F({ id: 'deco_record', name: '黑膠唱盤', category: 'deco', style: 'dark', price: 70, placement: 'surface', w: 18, h: 10, interaction: 'deco', unlock: { kind: 'achievement', id: 'pages2000' } }),
 
   // ── love furniture ──

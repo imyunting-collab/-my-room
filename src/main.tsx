@@ -22,7 +22,21 @@ async function boot() {
   // update plant growth whenever the app comes back to the foreground
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshPlants().catch(() => undefined); });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && window.top === window.self) {
-    navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+    // When a new version has been downloaded, switch to it right away instead of on the next launch.
+    // Don't interrupt typing: if a text field is focused, wait until the app goes to the background.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    const reload = () => { if (!reloaded) { reloaded = true; location.reload(); } };
+    const typing = () => { const el = document.activeElement; return !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'file') || (el as HTMLElement).isContentEditable); };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return; // first install: nothing to swap
+      if (!typing()) reload();
+      else document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') reload(); });
+    });
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // home-screen apps are often resumed rather than relaunched — check for a new version each time
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => undefined); });
+    }).catch(() => undefined);
   }
   try { await navigator.storage?.persist?.(); } catch { /* optional */ }
 }

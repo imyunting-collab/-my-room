@@ -266,6 +266,52 @@ try {
       await page.keyboard.press('Escape');
       await page.click('[data-testid=arrange-toggle]');
     });
+    await e2e('家具與窗戶可以翻轉、窗戶可以拖曳；唱片機會放音樂；睡覺會蓋棉被；對話在最上層', async () => {
+      await grant(300);
+      await go('/shop');
+      await page.locator('[data-testid=shop-recordplayer_wood] [data-testid=buy]').click(); await page.waitForTimeout(300);
+      await page.locator('[data-testid=shop-cabinet_wood] [data-testid=buy]').click(); await page.waitForTimeout(300);
+      await go('/room?scene=bedroom');
+      const at = async (x, y) => { await page.evaluate(() => scrollTo(0, 0)); const b = await page.locator('[data-testid=room-scene]').boundingBox(); return { x: b.x + x / 192 * b.width, y: b.y + y / 240 * b.height }; };
+      for (const [x, y] of [[170, 190], [30, 234]]) { await page.click('button:has-text("收納箱")'); await page.locator('[data-testid=place-item]').first().click(); await page.waitForTimeout(150); const p = await at(x, y); await page.mouse.click(p.x, p.y); await page.waitForTimeout(400); }
+      if (!(await page.locator('[data-testid=furn-recordPlayer]').count()) || !(await page.locator('[data-testid=furn-cabinet]').count())) throw new Error('new furniture not placed');
+      // record player
+      await page.locator('[data-testid=furn-recordPlayer]').click();
+      await page.waitForSelector('.music-note', { timeout: 6000 });
+      // speech bubble is above every piece of furniture
+      const zs = await page.evaluate(() => { const b = document.querySelector('.scene .bubble'); const maxF = Math.max(...[...document.querySelectorAll('.scene .obj')].map((e) => Number(getComputedStyle(e).zIndex) || 0)); return [b ? Number(getComputedStyle(b).zIndex) : -1, maxF]; });
+      if (!(zs[0] > zs[1])) throw new Error('bubble below furniture ' + zs);
+      await page.locator('[data-testid=furn-recordPlayer]').click(); await page.waitForTimeout(400);
+      await page.waitForSelector('.music-note', { state: 'detached', timeout: 4000 });
+      // sleep → blanket
+      await page.locator('[data-testid=furn-bed]').click();
+      await page.waitForSelector('[data-testid=blanket]', { timeout: 6000 });
+      await page.locator('[data-testid=furn-bed]').click(); await page.waitForTimeout(300);
+      if (await page.locator('[data-testid=blanket]').count()) throw new Error('blanket stayed after waking');
+      // flip furniture + window, move window; persists after reload
+      await page.click('[data-testid=arrange-toggle]');
+      for (const cat of ['bed', 'lamp', 'recordPlayer']) {
+        await go(cat === 'lamp' ? '/room?scene=study' : '/room?scene=bedroom');
+        if (!(await page.locator('[data-testid=arrange-hint]').count())) await page.click('[data-testid=arrange-toggle]');
+        await page.locator(`[data-testid=furn-${cat}]`).first().click(); await page.click('[data-testid=flip-item]'); await page.waitForTimeout(250);
+      }
+      await go('/room?scene=bedroom');
+      if (!(await page.locator('[data-testid=arrange-hint]').count())) await page.click('[data-testid=arrange-toggle]');
+      await page.evaluate(() => scrollTo(0, 0)); await page.locator('[data-testid=room-window]').click({ force: true }); await page.click('[data-testid=flip-window]'); await page.waitForTimeout(250);
+      await page.evaluate(() => scrollTo(0, 0));
+      const w0 = await page.locator('[data-testid=room-window]').boundingBox();
+      await page.mouse.move(w0.x + w0.width / 2, w0.y + w0.height / 2); await page.mouse.down();
+      for (let i = 1; i <= 6; i++) await page.mouse.move(w0.x + w0.width / 2 + i * 20, w0.y + w0.height / 2);
+      await page.mouse.up(); await page.waitForTimeout(400);
+      await page.reload(); await page.waitForTimeout(900);
+      await page.evaluate(() => scrollTo(0, 0));
+      const w1 = await page.locator('[data-testid=room-window]').boundingBox();
+      if (w1.x - w0.x < 40) throw new Error('window did not move');
+      for (const sel of ['[data-testid=room-window]', '[data-testid=furn-bed]', '[data-testid=furn-recordPlayer]']) if (!(await page.locator(sel).first().getAttribute('class')).includes('flipped')) throw new Error(sel + ' not flipped');
+      await go('/room?scene=study');
+      if (!(await page.locator('[data-testid=furn-lamp]').first().getAttribute('class')).includes('flipped')) throw new Error('lamp not flipped');
+      if (await page.locator('[data-testid=arrange-hint]').count()) await page.click('[data-testid=arrange-toggle]');
+    });
     await e2e('戀愛日記可以新增、編輯、刪除', async () => {
       await go('/love-diary');
       await page.click('[data-testid=new-memory]');
