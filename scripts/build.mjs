@@ -55,7 +55,7 @@ if (serveMode) {
   console.log(`MY ROOM dev server: http://localhost:${port}`);
 } else {
   await esbuild.build({ ...common, minify: true, sourcemap: false, metafile: false });
-  const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(out, 'app.js'))).digest('hex').slice(0, 10);
+  const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(out, 'app.js'))).update(fs.readFileSync(path.join(out, 'app.css'))).digest('hex').slice(0, 10);
   writeShell(hash);
   console.log('build ok →', out, 'version', hash);
 }
