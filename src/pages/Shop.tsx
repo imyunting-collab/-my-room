@@ -10,8 +10,9 @@ import { characterURL, DEFAULT_EQUIP } from '../sprites/characters';
 import { deviceURL, foodURL, furnitureURL, plantURL } from '../sprites/furniture';
 import { Coins, Icon, Tabs, useAction } from '../ui';
 import { toast } from '../lib/bus';
+import { FESTIVAL_INFO, festivalOpenForShop } from '../services/world';
 
-type Tab = 'furniture' | 'love' | 'devices' | 'clothing' | 'food' | 'plants';
+type Tab = 'furniture' | 'love' | 'limited' | 'devices' | 'clothing' | 'food' | 'plants';
 
 type Area = 'all' | 'room' | 'kitchen' | 'balcony';
 export default function ShopPage({ tab: initial, area: area0 }: { tab?: string; area?: string }) {
@@ -51,7 +52,7 @@ export default function ShopPage({ tab: initial, area: area0 }: { tab?: string; 
   return (
     <div>
       <div className="row between" style={{ marginBottom: 10 }}><span className="muted">用閱讀賺來的知識幣，把喜歡的東西搬進房間。</span><Coins n={bal} /></div>
-      <Tabs value={tab} onChange={setTab} items={[['furniture', '家具'], ['love', '戀愛家具'], ['devices', '數位設備'], ['clothing', '服裝'], ['food', '食物'], ['plants', '盆栽']]} />
+      <Tabs value={tab} onChange={setTab} items={[['furniture', '家具'], ['love', '戀愛家具'], ['limited', '🎁 節日限定'], ['devices', '數位設備'], ['clothing', '服裝'], ['food', '食物'], ['plants', '盆栽']]} />
       {(tab === 'furniture' || tab === 'love') && <p className="small">買到的家具會先放進房間的「收納箱」，再擺到喜歡的位置。✨ 標示的家具真的可以互動。</p>}
       {tab === 'furniture' && (
         <div className="chips" style={{ marginBottom: 10 }}>
@@ -59,8 +60,12 @@ export default function ShopPage({ tab: initial, area: area0 }: { tab?: string; 
         </div>
       )}
       <div className="shop-grid">
-        {tab === 'furniture' && FURNITURE.filter((f) => !f.love && f.price > 0 && (area === 'all' || (f.area ?? 'room') === area)).map((f) => item(f.id, f.name, furnitureURL(f, { now, books: [] }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), `${FURN_CAT_LABEL[f.category]} · ${STYLE_LABEL[f.style]}`, undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
-        {tab === 'love' && FURNITURE.filter((f) => f.love).map((f) => item(f.id, f.name, furnitureURL(f, { now }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), FURN_CAT_LABEL[f.category], undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
+        {tab === 'furniture' && FURNITURE.filter((f) => !f.love && !f.special && !f.limited && f.price > 0 && (area === 'all' || (f.area ?? 'room') === area)).map((f) => item(f.id, f.name, furnitureURL(f, { now, books: [] }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), `${FURN_CAT_LABEL[f.category]} · ${STYLE_LABEL[f.style]}`, undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
+        {tab === 'love' && FURNITURE.filter((f) => f.love && !f.special && !f.limited).map((f) => item(f.id, f.name, furnitureURL(f, { now }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), FURN_CAT_LABEL[f.category], undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
+        {tab === 'limited' && FURNITURE.filter((f) => f.limited).map((f) => {
+          const open = festivalOpenForShop(f.limited!);
+          return item(f.id, f.name, furnitureURL(f, { now, on: true }).url, f.price, ownedF.has(f.id), open ? undefined : { kind: 'festival', name: FESTIVAL_INFO[f.limited!].name }, () => buyFurniture(f.id), `${FESTIVAL_INFO[f.limited!].emoji} ${FESTIVAL_INFO[f.limited!].name}限定`, undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc);
+        })}
         {tab === 'devices' && DEVICES.map((d) => item(d.id, d.name, deviceURL(d, true).url, d.price, ownedD.has(d.id), undefined, () => buyDevice(d.id), d.deviceType === 'phone' ? '手機外觀（到手機設定更換）' : '購買後自動放到書桌上', () => { autoPlaceDevice(d.id); })) }
         {tab === 'clothing' && CLOTHING.filter((c) => c.price > 0).map((c) => item(c.id, c.name, characterURL({ who: c.character, pose: 'stand', view: 'front', expr: 'smile', equip: { ...DEFAULT_EQUIP[c.character], [c.slot]: c.id } }), c.price, ownedC.has(c.id), c.unlock, () => buyClothing(c.id), `${c.character === 'chen' ? '陳卷毛 · ' : ''}${c.tag}`))}
         {tab === 'food' && FOODS.map((f) => (

@@ -191,8 +191,22 @@ export async function endVisit() {
       if (v && !v.departedAt) await t.store('visits').put({ ...v, departedAt: Date.now() });
     }
     await t.store('meta').put({ key: 'visit', value: { active: false } });
+    await t.store('meta').put({ key: 'visit:lastEnd', value: Date.now() });
   });
 }
+
+/** Should he check on you first? Looks at diaries written since his last visit, and today's mood temperature. */
+export async function concernReason(): Promise<{ kind: 'sad' | 'tired' | 'cold'; key: string; title?: string } | null> {
+  const since = await db.getKV<number>('meta', 'visit:lastEnd', 0);
+  const handled = await db.getKV<string>('meta', 'concern:handled', '');
+  const diary = (await db.all('diary')).filter((d) => !d.isDraft && d.updatedAt > since && (d.mood === 'sad' || d.mood === 'tired')).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  if (diary && handled !== diary.id) return { kind: diary.mood === 'sad' ? 'sad' : 'tired', key: diary.id, title: diary.title };
+  const m = await getTodayMood();
+  const key = `mood:${dateKey()}`;
+  if (m && moodLevel(m.temp) === 0 && handled !== key) return { kind: 'cold', key };
+  return null;
+}
+export async function markConcernHandled(key: string) { await db.setKV('meta', 'concern:handled', key); }
 
 /** Shared meal: needs food in the fridge. Uses one portion each (or splits a single portion). */
 export async function shareMeal(foodId: string): Promise<{ used: number }> {

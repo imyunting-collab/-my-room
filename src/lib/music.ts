@@ -109,6 +109,9 @@ class Loop {
 const record = new Loop(LOFI, () => (audioSettings.sfxOn ? 0.5 + audioSettings.sfxVol * 0.6 : 0));
 const bgm = new Loop(BGM_TRACKS[audioSettings.bgmTrack]?.track ?? MUSICBOX, () => audioSettings.bgmVol * 0.9);
 
+let quiet = false;
+/** 專注模式：讓房間安靜下來 */
+export function setQuiet(q: boolean) { quiet = q; if (q) record.stop(); syncBgm(); }
 export function isPlaying() { return record.playing; }
 export function playMusic() { bgm.stop(); record.start(); }
 export function stopMusic() { record.stop(); syncBgm(); }
@@ -117,7 +120,7 @@ export function stopMusic() { record.stop(); syncBgm(); }
 export function syncBgm() {
   bgm.setTrack(BGM_TRACKS[audioSettings.bgmTrack]?.track ?? MUSICBOX);
   record.refreshVolume();
-  const want = audioSettings.bgmOn && audioSettings.bgmVol > 0 && isUnlocked() && !record.playing && document.visibilityState !== 'hidden';
+  const want = audioSettings.bgmOn && audioSettings.bgmVol > 0 && isUnlocked() && !record.playing && !quiet && document.visibilityState !== 'hidden';
   if (want && !bgm.playing) bgm.start();
   else if (!want && bgm.playing) bgm.stop();
   else bgm.refreshVolume();

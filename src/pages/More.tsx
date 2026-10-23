@@ -2,8 +2,8 @@ import { Link } from '../router';
 import { Icon, PixelText } from '../ui';
 
 const GROUPS: [string, [string, string, string][]][] = [
-  ['閱讀', [['/library', '我的書庫', 'library'], ['/add', '新增閱讀', 'plus'], ['/journal', '閱讀手札', 'journal'], ['/calendar', '閱讀月曆', 'calendar'], ['/stats', '閱讀統計', 'chart'], ['/review', '年度回顧', 'star'], ['/achievements', '成就', 'trophy'], ['/bookshelf', '動態書架', 'shelf']]],
-  ['生活', [['/room?scene=bedroom', '臥室', 'home'], ['/room?scene=study', '書房', 'book'], ['/balcony', '陽台植物園', 'plant'], ['/wardrobe', '衣櫃', 'shirt'], ['/fridge', '冰箱', 'fridge'], ['/shop', '商店', 'gift'], ['/wallet', '知識幣', 'coin']]],
+  ['閱讀', [['/library', '我的書庫', 'library'], ['/add', '新增閱讀', 'plus'], ['/journal', '閱讀手札', 'journal'], ['/calendar', '閱讀月曆', 'calendar'], ['/stats', '閱讀統計', 'chart'], ['/review', '年度回顧', 'star'], ['/achievements', '成就', 'trophy'], ['/bookshelf', '動態書架', 'shelf'], ['/map', '閱讀地圖', 'star'], ['/cards', '書卡收藏', 'book']]],
+  ['生活', [['/room?scene=bedroom', '臥室', 'home'], ['/room?scene=study', '書房', 'book'], ['/room?scene=kitchen', '廚房', 'fridge'], ['/gallery', '作品牆', 'star'], ['/balcony', '陽台植物園', 'plant'], ['/wardrobe', '衣櫃', 'shirt'], ['/fridge', '冰箱', 'fridge'], ['/shop', '商店', 'gift'], ['/wallet', '知識幣', 'coin']]],
   ['設備與戀愛', [['/computer', '電腦', 'chart'], ['/tablet', '平板', 'book'], ['/phone', '手機', 'phone'], ['/diary', '日記', 'journal'], ['/love', '陳卷毛', 'heart'], ['/love-diary', '戀愛日記', 'pen']]],
   ['其他', [['/settings', '設定與備份', 'gear']]],
 ];

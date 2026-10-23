@@ -3,7 +3,7 @@
 import type { Expression } from '../sprites/characters';
 
 export interface Line { text: string; emotion: Expression; action?: 'invite' | 'meal' | 'read' }
-export interface ChatTopic { id: string; prompt: string; replies: Line[][]; /** replies that depend on today's mood (0 低落 … 4 超開心) */ byMood?: Partial<Record<MoodLevel, Line[][]>> }
+export interface ChatTopic { id: string; prompt: string; replies: Line[][]; /** unlocked by a couple quest */ locked?: boolean; /** replies that depend on today's mood (0 低落 … 4 超開心) */ byMood?: Partial<Record<MoodLevel, Line[][]>> }
 export type MoodLevel = 0 | 1 | 2 | 3 | 4;
 
 export const CHAT_TOPICS: ChatTopic[] = [
@@ -145,6 +145,43 @@ export const CHAT_TOPICS: ChatTopic[] = [
       4: [[{ text: '今天的妳整個人在發光！', emotion: 'happy' }, { text: '我也被傳染開心了 😆', emotion: 'happy' }]],
     },
   },
+  // ── 雙人任務解鎖的話題 ──
+  {
+    id: 'bookswap', prompt: '我們來交換書單吧', locked: true,
+    replies: [
+      [{ text: '好！我先推薦一本：', emotion: 'happy' }, { text: '妳看完要跟我說哪一句最喜歡，我也會照妳的書單讀。', emotion: 'smile', action: 'read' }],
+      [{ text: '妳書架上那本我偷看過了，', emotion: 'shy' }, { text: '我們一人一本，週末交換心得？', emotion: 'smile' }],
+    ],
+  },
+  {
+    id: 'future', prompt: '以後想一起去哪裡？', locked: true,
+    replies: [
+      [{ text: '想跟妳去海邊，', emotion: 'smile' }, { text: '帶一本書、一壺咖啡，坐一整個下午。', emotion: 'happy' }],
+      [{ text: '想去一個會下雪的地方。', emotion: 'think' }, { text: '然後幫妳把手放進我的口袋。', emotion: 'shy' }],
+      [{ text: '哪裡都可以，', emotion: 'smile' }, { text: '只要不是分開的兩個地方就好。', emotion: 'shy' }],
+    ],
+  },
+  {
+    id: 'firstmeet', prompt: '還記得我們第一次見面嗎？', locked: true,
+    replies: [
+      [{ text: '記得啊，妳那天超緊張的。', emotion: 'happy' }, { text: '……好啦，其實我比妳更緊張。', emotion: 'shy' }],
+      [{ text: '我記得妳笑起來的樣子。', emotion: 'smile' }, { text: '那時候我就想，完了，我要淪陷了。', emotion: 'shy' }],
+    ],
+  },
+  {
+    id: 'secret', prompt: '跟我說一個秘密', locked: true,
+    replies: [
+      [{ text: '秘密：', emotion: 'think' }, { text: '我手機裡有一個相簿，全部都是妳。', emotion: 'shy' }],
+      [{ text: '其實我每次打完球，第一件事就是看妳有沒有傳訊息。', emotion: 'shy' }, { text: '噓，不要說出去。', emotion: 'smile' }],
+    ],
+  },
+  {
+    id: 'promise', prompt: '我們來約定一件事', locked: true,
+    replies: [
+      [{ text: '好，約定：', emotion: 'smile' }, { text: '不管多遠，每天都要說一次晚安。', emotion: 'happy' }, { text: '打勾勾。', emotion: 'shy' }],
+      [{ text: '約定下次見面，第一件事是擁抱。', emotion: 'happy' }, { text: '第二件事也是。', emotion: 'shy' }],
+    ],
+  },
 ];
 
 /** 他依照妳的心情溫度回的話（設定心情溫度計時會收到）。 */
@@ -254,6 +291,16 @@ export const VISIT_LINES: Record<string, Line[]> = {
   dance: [{ text: '我不太會跳…', emotion: 'shy' }, { text: '踩到妳的腳了！對不起！', emotion: 'surprised' }, { text: '再一首！', emotion: 'happy' }],
   photo: [{ text: '來，看鏡頭～', emotion: 'happy' }, { text: '這張要設成桌布。', emotion: 'smile' }],
   cook: [{ text: '我負責切菜，妳負責美美的。', emotion: 'happy' }, { text: '好香！我們好厲害。', emotion: 'happy' }],
+  concernSad: [{ text: '欸…我看到妳日記寫的了。', emotion: 'sad' }, { text: '妳還好嗎？想說的話我都在聽。', emotion: 'smile' }],
+  concernTired: [{ text: '最近是不是很累？', emotion: 'sad' }, { text: '今天什麼都不用做，我陪妳躺著就好。', emotion: 'smile' }],
+  concernCold: [{ text: '妳今天的心情溫度好低…', emotion: 'sad' }, { text: '先抱一下，再慢慢說。', emotion: 'smile' }],
+  selfFridge: [{ text: '我去拿冰箱的東西喔～', emotion: 'happy' }, { text: '妳要不要也吃一點？', emotion: 'smile' }],
+  selfFridgeEmpty: [{ text: '冰箱空空的…我們下次一起去買？', emotion: 'think' }],
+  selfBook: [{ text: '妳書架上這本《{book}》好看嗎？', emotion: 'think' }, { text: '我先看幾頁～', emotion: 'smile' }],
+  selfSleep: [{ text: '（打了一個大哈欠）', emotion: 'closed' }, { text: '我瞇一下下就好…', emotion: 'closed' }],
+  selfWindow: [{ text: '外面{weather}欸。', emotion: 'surprised' }, { text: '跟妳待在家裡剛剛好。', emotion: 'smile' }],
+  selfCat: [{ text: '{pet}～過來給我摸摸', emotion: 'happy' }, { text: '牠又不理我了 😂', emotion: 'normal' }],
+  wake: [{ text: '嗯…我睡著了嗎？', emotion: 'surprised' }, { text: '夢到妳了。', emotion: 'shy' }],
 };
 
 /** In-game event messages (triggered by your own actions in the game, never "real" texts). */

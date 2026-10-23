@@ -98,6 +98,10 @@ export interface OwnedFurniture {
   y: number;
   /** mirrored left↔right */
   flip?: boolean;
+  /** artwork frames (作品牆): the photo inside and its title */
+  photoId?: string;
+  title?: string;
+  artKind?: 'print' | 'poem' | 'other';
   purchasedAt: number;
 }
 
@@ -224,10 +228,11 @@ export interface RelationshipSettings {
   updatedAt: number;
 }
 
-export type RoomId = 'bedroom' | 'study' | 'kitchen' | 'balcony';
+export type AreaId = 'rooftop' | 'lab' | 'studio' | 'greenhouse' | 'attic' | 'nook';
+export type RoomId = 'bedroom' | 'study' | 'kitchen' | 'balcony' | AreaId;
 /** rooms drawn by the Room scene (the balcony has its own page) */
 export type SceneRoom = Exclude<RoomId, 'balcony'>;
-export const ROOM_LABEL: Record<RoomId, string> = { bedroom: '臥室', study: '書房', kitchen: '廚房', balcony: '陽台' };
+export const ROOM_LABEL: Record<RoomId, string> = { bedroom: '臥室', study: '書房', kitchen: '廚房', balcony: '陽台', rooftop: '星空屋頂', lab: '小實驗室', studio: '藝術工作室', greenhouse: '溫室花園', attic: '歷史閣樓', nook: '書店咖啡角' };
 export interface RoomConfiguration {
   id: RoomId;
   wallpaper: string;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { db } from '../db/idb';
 import { useDayPart, useLive, useReducedMotion } from '../hooks';
 import { navigate } from '../router';
@@ -10,7 +10,7 @@ import { opaqueAt, solidObjBelow } from '../lib/hit';
 import { sprite } from '../sprites/pixel';
 import { deviceById, furnById, FURN_CAT_LABEL, GIFTS, foodById, type FurnitureDef } from '../data/catalog';
 import { shelfBooks, shelfRows } from '../components/shelf';
-import { DEFAULT_WINDOW, devicePos, furniturePos, getWindowLayout, placeDevice, placeFurniture, setWindowLayout, storeFurniture, swapFurniture, toggleFlip, windowPos, WINDOW_W, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
+import { defaultWindow, devicePos, furniturePos, getWindowLayout, placeDevice, placeFurniture, setWindowLayout, storeFurniture, swapFurniture, toggleFlip, windowPos, WINDOW_W, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
 import { endVisit, getTodayMood, getVisit, giveGift, logInteraction, moodLevel, readTogether, saveMemory, shareMeal, startVisit } from '../services/love';
 import { checkAchievements } from '../services/reading';
 import { MOOD_REPLIES, VISIT_LINES, type Line } from '../data/dialogue';
@@ -20,17 +20,30 @@ import { clamp, DAYPART_LABEL, pick, sleep, timeHM } from '../lib/util';
 import { ROOM_LABEL, type OwnedDevice, type OwnedFurniture, type SceneRoom } from '../db/types';
 import { FX_CHARS, performAct } from '../components/act';
 import { sfx } from '../lib/sound';
+import { activeFestivals, deskState, getWeather, rainOnPlants, seasonOf, SEASON_LABEL, WEATHER_LABEL, FESTIVAL_INFO } from '../services/world';
+import { CatSprite, DeskDetails, FestivalDecor, FocusOverlay, useCatBrain } from './RoomExtras';
+import { feedPet, getPet, petMood, petThePet, renamePet } from '../services/pet';
+import { cancelFocus, endFocus, getFocus, startFocus } from '../services/focus';
+import { hungCardColors, unlockedAreas } from '../services/progress';
+import { areaById } from '../data/areas';
+import { setQuiet } from '../lib/music';
+import { PhotoViewer } from '../components/DiaryBook';
+import { usePhoto, Field } from '../ui';
+import { CATEGORY_COLORS } from '../data/catalog';
+import { concernReason, markConcernHandled } from '../services/love';
+import { eatFood } from '../services/life';
 import type { ActFx } from '../data/catalog';
 
 // ───────── scene constants ─────────
-const BALCONY_DOOR: Record<SceneRoom, { x: number } | null> = { bedroom: null, study: { x: 18 }, kitchen: null };
-const ENTRY_DOOR: Record<SceneRoom, { x: number } | null> = { bedroom: { x: 176 }, study: null, kitchen: null };
+const BALCONY_DOOR: Partial<Record<SceneRoom, { x: number }>> = { study: { x: 18 } };
+const ENTRY_DOOR: Partial<Record<SceneRoom, { x: number }>> = { bedroom: { x: 176 } };
 // pieces whose sprite has two animation frames
 const ANIMATED = new Set(['lamp_lava', 'musicbox', 'catbed', 'fishbowl', 'bird_feeder', 'wind_chime', 'balloons', 'gacha_love']);
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
 function roomBg(room: SceneRoom) {
   return sprite(`roombg|${room}`, ROOM_W, ROOM_H, (p) => {
+    if (areaBg(p, room)) return;
     if (room === 'kitchen') {
       // mint tiles + checkered floor
       p.r(0, 0, ROOM_W, FLOOR_Y, '#e4f0ea');
@@ -51,6 +64,53 @@ function roomBg(room: SceneRoom) {
     }
   }, { outline: false, margin: 0 });
 }
+
+/** wall + floor for the reading-map areas; returns false for the normal rooms */
+function areaBg(p: Parameters<Parameters<typeof sprite>[3]>[0], room: SceneRoom): boolean {
+  const floorPlanks = (a: string, b: string, line: string) => { for (let y = FLOOR_Y; y < ROOM_H; y += 8) { p.r(0, y, ROOM_W, 8, (y / 8) % 2 ? a : b); p.r(0, y, ROOM_W, 1, line); for (let x = ((y / 8) % 3) * 23; x < ROOM_W; x += 64) p.r(x, y, 1, 8, line); } };
+  const skirting = (c = '#fbf7ef') => { p.r(0, FLOOR_Y - 6, ROOM_W, 6, c); p.r(0, FLOOR_Y - 1, ROOM_W, 1, '#c9b89a'); };
+  switch (room) {
+    case 'rooftop': {
+      for (let y = 0; y < FLOOR_Y; y++) p.r(0, y, ROOM_W, 1, `rgb(${Math.round(30 + y * 0.5)},${Math.round(38 + y * 0.45)},${Math.round(80 + y * 0.6)})`);
+      for (let i = 0; i < 60; i++) p.p((i * 53) % ROOM_W, (i * 29) % (FLOOR_Y - 30), i % 5 ? '#fff6c8' : '#cfd8ff');
+      p.rows([[14, 150, 157], [15, 148, 159], [16, 147, 160], [17, 147, 160], [18, 147, 160], [19, 148, 159], [20, 150, 157]], '#fff1b8');
+      for (let x = 0, i = 0; x < ROOM_W; x += 14, i++) { const h = 14 + ((i * 37) % 22); p.r(x, FLOOR_Y - 12 - h, 13, h + 12, '#1c2234'); if (i % 2) { p.p(x + 3, FLOOR_Y - h, '#ffe08a'); p.p(x + 8, FLOOR_Y - h + 6, '#ffe08a'); } }
+      p.r(0, FLOOR_Y - 4, ROOM_W, 4, '#9aa7b8'); for (let x = 2; x < ROOM_W; x += 8) p.r(x, FLOOR_Y - 12, 2, 8, '#9aa7b8'); p.r(0, FLOOR_Y - 13, ROOM_W, 2, '#b8c3d0');
+      for (let y = FLOOR_Y; y < ROOM_H; y += 12) for (let x = 0; x < ROOM_W; x += 12) { p.r(x, y, 12, 12, ((x + y) / 12) % 2 ? '#8d8a86' : '#7f7c78'); p.r(x, y, 12, 1, '#6c6965'); }
+      return true;
+    }
+    case 'lab':
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#e3eef2'); for (let y = 0; y < FLOOR_Y; y += 8) p.r(0, y, ROOM_W, 1, '#cfdde3'); for (let x = 0; x < ROOM_W; x += 8) p.r(x, 50, 1, FLOOR_Y - 50, '#cfdde3');
+      p.r(0, 48, ROOM_W, 3, '#8fcbd6'); p.r(14, 14, 30, 22, '#fffaf1'); p.r(16, 16, 26, 2, '#5d7fa6'); p.r(16, 21, 18, 1, '#9aa7b8'); p.r(16, 25, 22, 1, '#9aa7b8'); p.r(20, 29, 8, 5, '#e8b8b2');
+      skirting('#f3f7f8'); for (let y = FLOOR_Y; y < ROOM_H; y += 12) for (let x = 0; x < ROOM_W; x += 12) p.r(x, y, 12, 12, ((x / 12) + (y - FLOOR_Y) / 12) % 2 ? '#d7dde0' : '#c8d0d4');
+      return true;
+    case 'studio':
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#f6f3ec');
+      for (const [x, y, c] of [[20, 20, '#5d7fa6'], [60, 34, '#e8b8b2'], [100, 16, '#f3c46b'], [36, 60, '#9cb58f'], [84, 70, '#8fcbd6'], [170, 40, '#c96f4a']] as [number, number, string][]) { p.r(x, y, 4, 3, c); p.p(x + 4, y + 1, c); p.p(x - 1, y + 2, c); }
+      p.r(118, 18, 22, 28, '#fffaf1'); p.r(120, 20, 18, 24, '#3d6ea8'); p.rows([[38, 120, 137], [37, 121, 126], [36, 122, 125], [37, 129, 134], [36, 130, 133]], '#d6eef8');
+      skirting(); floorPlanks('#d8b48a', '#d1ab80', '#b48d63'); for (let i = 0; i < 12; i++) p.p((i * 31) % ROOM_W, FLOOR_Y + 10 + (i * 17) % 100, ['#5d7fa6', '#e05c6e', '#f3c46b'][i % 3]);
+      return true;
+    case 'greenhouse':
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#dff0e4'); for (let x = 0; x < ROOM_W; x += 32) p.r(x, 0, 2, FLOOR_Y, '#f3f7f4'); for (let y = 0; y < FLOOR_Y; y += 30) p.r(0, y, ROOM_W, 2, '#f3f7f4');
+      for (let i = 0; i < 10; i++) { const x = 6 + i * 19; p.rows([[FLOOR_Y - 10, x + 2, x + 6], [FLOOR_Y - 9, x, x + 8], [FLOOR_Y - 8, x + 1, x + 7]], i % 2 ? '#7fb277' : '#5b8c5c'); }
+      p.r(0, 6, ROOM_W, 3, '#9cb58f'); for (let x = 4; x < ROOM_W; x += 9) { p.r(x, 9, 2, 5 + (x % 7), '#7fb277'); p.p(x + 1, 14 + (x % 7), '#f2b8c6'); }
+      skirting('#e9e2d0'); p.r(0, FLOOR_Y, ROOM_W, ROOM_H - FLOOR_Y, '#e9e2d0'); for (let y = FLOOR_Y, row = 0; y < ROOM_H; y += 10, row++) for (let x = row % 2 ? -8 : 0; x < ROOM_W; x += 16) { p.r(x, y, 15, 9, '#c9bfae'); p.r(x, y, 15, 1, '#ddd4c4'); }
+      return true;
+    case 'attic':
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#a07a58'); for (let x = 0; x < ROOM_W; x += 10) p.r(x, 0, 1, FLOOR_Y, '#8a6648');
+      for (let i = 0; i < 40; i++) { p.line(0, i, 40 - i, 0, '#5e3c27'); p.line(ROOM_W - 1, i, ROOM_W - 41 + i, 0, '#5e3c27'); }
+      p.r(0, 10, ROOM_W, 5, '#6b4433'); p.r(0, 10, ROOM_W, 1, '#8a5a3b');
+      skirting('#8a6648'); floorPlanks('#8a6044', '#835a3f', '#6b4433'); for (let i = 0; i < 6; i++) p.r(20 + i * 28, FLOOR_Y + 30 + (i % 3) * 30, 6, 1, '#a07a58');
+      return true;
+    case 'nook':
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#3f5a4a');
+      for (let sy = 8; sy < FLOOR_Y - 20; sy += 22) { p.r(0, sy + 18, ROOM_W, 3, '#7a5235'); for (let x = 2, i = 0; x < ROOM_W - 4; x += 4, i++) if ((i * 7) % 11 > 1) p.r(x, sy + 6 + (i % 4), 3, 12 - (i % 4), ['#c96f4a', '#e8b8b2', '#f3c46b', '#8fcbd6', '#9cb58f', '#d6c4a2'][i % 6]); }
+      skirting('#5e3c27'); floorPlanks('#b07d52', '#a87348', '#8a5a3b');
+      return true;
+    default: return false;
+  }
+}
+const NO_WINDOW = new Set<SceneRoom>(['rooftop', 'greenhouse']);
 
 const TINT: Record<string, string> = { dawn: 'rgba(255,205,180,0.25)', day: 'rgba(255,255,255,0)', dusk: 'rgba(255,160,90,0.28)', night: 'rgba(60,80,150,0.45)', midnight: 'rgba(30,35,80,0.6)' };
 
@@ -74,9 +134,18 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
   const visit = useLive(getVisit, [], { active: false });
   const food = useLive(() => db.all('foodInventory'), [], []) ?? [];
   const diary = (useLive(() => db.all('diary'), [], []) ?? []).filter((d) => !d.isDraft);
-  const win = useLive(() => getWindowLayout(room), [room], DEFAULT_WINDOW[room]) ?? DEFAULT_WINDOW[room];
+  const win = useLive(() => getWindowLayout(room), [room], defaultWindow(room)) ?? defaultWindow(room);
 
   const placed = furniture.filter((f) => f.roomId === room);
+  const weather = useLive(() => getWeather(), [], 'sunny') ?? 'sunny';
+  const festivals = useLive(() => activeFestivals(), [], []) ?? [];
+  const desk = useLive(() => deskState(), [], null);
+  const areas = useLive(unlockedAreas, [], []) ?? [];
+  const cardColors = useLive(hungCardColors, [], []) ?? [];
+  const pet = useLive(getPet, [], null);
+  const focus = useLive(getFocus, [], null);
+  const sessions = useLive(() => db.all('sessions'), [], []) ?? [];
+  const lastBook = useMemo(() => { const s0 = [...sessions].sort((a, b) => b.createdAt - a.createdAt)[0]; return s0 ? books.find((b) => b.id === s0.bookId) : undefined; }, [sessions, books]);
   const placedDev = devices.filter((d) => d.isPlaced && d.roomId === room);
   const stored = furniture.filter((f) => !f.roomId);
   const storedDev = devices.filter((d) => !d.isPlaced && deviceById.get(d.defId)?.placement === 'surface');
@@ -119,6 +188,39 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
   const sceneRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { if (initial) setRoom(initial); }, [initial]);
+  // ── cat, focus mode, weather behaviour ──
+  const catBrain = useCatBrain(room, reduce);
+  const [catMenu, setCatMenu] = useState(false);
+  const [catBowl, setCatBowl] = useState<{ x: number; y: number; full: boolean } | null>(null);
+  const [focusPick, setFocusPick] = useState(false);
+  const [focusEnd, setFocusEnd] = useState(false);
+  const [artView, setArtView] = useState<OwnedFurniture | null>(null);
+  const rainSat = useRef<Record<string, boolean>>({});
+  useEffect(() => { rainOnPlants().then((n) => { if (n) toast(`🌧️ 今天下雨，陽台的 ${n} 盆植物都喝到水了`, 'info'); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    // rainy day: 99 sits by the window listening to the rain (once per room per visit to the page)
+    if (weather !== 'rain' || rainSat.current[room] || NO_WINDOW.has(room) || visit?.active || focus) return;
+    rainSat.current[room] = true;
+    // nearest free spot on the floor under the window (don't sit inside a desk or a bed)
+    const blocks = placed.filter((f) => def(f).placement === 'floor' && def(f).category !== 'rug').map((f) => ({ x0: f.x - def(f).w / 2 - 8, x1: f.x + def(f).w / 2 + 8, y0: f.y - def(f).h, y1: f.y + 10 }));
+    const free = (x: number, y: number) => !blocks.some((r) => x > r.x0 && x < r.x1 && y - 30 < r.y1 && y > r.y0);
+    let spot = { x: clamp(win.x, 20, ROOM_W - 20), y: ROOM_H - 8 };
+    outer: for (const y of [FLOOR_Y + 30, FLOOR_Y + 50, FLOOR_Y + 70, FLOOR_Y + 95, ROOM_H - 8]) for (const dx of [0, 24, -24, 48, -48, 72, -72]) { const x = clamp(win.x + dx, 20, ROOM_W - 20); if (free(x, y)) { spot = { x, y }; break outer; } }
+    setMe((a) => ({ ...a, x: spot.x, y: spot.y, pose: 'sit', view: 'front', flip: false, dur: 0, z: spot.y + 1 }));
+    setTimeout(() => say('99', pick(['下雨了，坐在窗邊聽雨～', '雨聲好好聽', '今天適合窩著看書'])), 600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weather, room, win.x]);
+  useEffect(() => { setQuiet(!!focus); return () => setQuiet(false); }, [!!focus]);
+  useEffect(() => {
+    if (!focus) return;
+    // sit down at the desk with the book
+    const chair = placed.find((f) => def(f).category === 'chair') ?? placed.find((f) => def(f).category === 'desk');
+    if (chair) setMe((a) => ({ ...a, x: chair.x, y: chair.y - 2, pose: 'read', view: 'front', flip: false, dur: 0, z: chair.y + 1, lying: false }));
+    else setMe((a) => ({ ...a, pose: 'read', view: 'front' }));
+    const t = setInterval(() => sfx('tick'), 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.startedAt, room]);
   useEffect(() => { mem99 = { room, x: me.x, y: me.y }; }, [room, me.x, me.y]);
   useEffect(() => () => { if (walkTimer.current) clearInterval(walkTimer.current); stopMusic(); }, []);
   // stop the music if the record player is put away / moved to another room
@@ -287,7 +389,9 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
       case 'fridge': await guard(async () => { await approach(); setMe((a) => ({ ...a, pose: 'takeFood', view: 'front' })); setOpenFridge(f.id); await sleep(650); navigate('/fridge'); }); break;
       case 'wardrobe': await guard(async () => { await approach(); setMe((a) => ({ ...a, view: 'back' })); await sleep(400); navigate('/wardrobe'); }); break;
       case 'shelf': setSelected(f); break;
-      case 'lamp': setLampOff((s) => ({ ...s, [f.id]: !(s[f.id] ?? !night) })); break;
+      case 'lamp': setLampOff((s) => ({ ...s, [f.id]: !(s[f.id] ?? !autoLamp) })); break;
+      case 'art': setArtView(f); break;
+      case 'cards': navigate('/cards'); break;
       case 'projector': setProjectorOn((v) => !v); break;
       case 'plantShelf': navigate('/balcony'); break;
       case 'music': await guard(async () => {
@@ -352,11 +456,67 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
     const target = { x: clamp(me.x + 28, 30, 170), y: clamp(me.y, FLOOR_Y + 30, ROOM_H - 4) };
     await walk(setChen, { current: { x: sx, y: FLOOR_Y + 22 } }, target.x, target.y);
     setChen((c) => ({ ...c, view: 'side', flip: true, expr: 'happy' }));
-        say('chen', pick(VISIT_LINES.arrive).text);
+    const concern = await concernReason().catch(() => null);
+    if (concern) {
+      // he read your diary / saw your mood: he checks on you first
+      const ls = concern.kind === 'sad' ? VISIT_LINES.concernSad : concern.kind === 'tired' ? VISIT_LINES.concernTired : VISIT_LINES.concernCold;
+      setChen((c) => ({ ...c, expr: ls[0].emotion })); say('chen', ls[0].text, 2600);
+      await sleep(2700); setChen((c) => ({ ...c, expr: ls[1].emotion })); say('chen', ls[1].text, 3000);
+      await markConcernHandled(concern.key);
+    } else say('chen', pick(VISIT_LINES.arrive).text);
     setMe((a) => ({ ...a, pose: 'wave', view: 'front' }));
     await sleep(900);
     setMe((a) => ({ ...a, pose: 'stand', view: 'side', flip: false }));
+    lastAct.current = Date.now();
   }
+
+  // ── 陳卷毛 does things on his own while he's here ──
+  const lastAct = useRef(Date.now());
+  const fill = (t: string) => t.replace('{book}', pick(books)?.title ?? '這本書').replace('{weather}', WEATHER_LABEL[weather].label).replace('{pet}', pet?.name ?? '貓咪');
+  useEffect(() => {
+    if (!visit?.active) return;
+    const t = setInterval(async () => {
+      if (busy.current || chenRef.current.hidden || chenRef.current.lying || Date.now() - lastAct.current < 16000) return;
+      lastAct.current = Date.now();
+      const fridge = placed.find((f) => def(f).category === 'fridge');
+      const shelf = placed.find((f) => def(f).category === 'bookshelf' || f.defId === 'swap_shelf');
+      const sofa = placed.find((f) => def(f).category === 'sofa') ?? placed.find((f) => f.defId === 'beanbag' || f.defId === 'beanbag_pair');
+      const options: (() => Promise<void>)[] = [];
+      if (fridge) options.push(async () => {
+        await walk(setChen, chenRef, fridge.x - 14, fridge.y + 6);
+        setOpenFridge(fridge.id); setChen((c) => ({ ...c, pose: 'takeFood', view: 'front' }));
+        const inv = food.filter((x) => x.quantity > 0);
+        if (inv.length) { const it = pick(inv); await eatFood(it.foodId).catch(() => undefined); say('chen', `${VISIT_LINES.selfFridge[0].text}（拿了${foodById.get(it.foodId)?.name}）`); await sleep(1600); setOpenFridge(null); setChen((c) => ({ ...c, pose: 'eat' })); await sleep(1400); say('chen', VISIT_LINES.selfFridge[1].text); }
+        else { say('chen', VISIT_LINES.selfFridgeEmpty[0].text); await sleep(1600); setOpenFridge(null); }
+        setChen((c) => ({ ...c, pose: 'stand', view: 'side' }));
+      });
+      if (shelf && books.length) options.push(async () => {
+        await walk(setChen, chenRef, shelf.x, shelf.y + 8);
+        setChen((c) => ({ ...c, pose: 'read', view: 'front', expr: 'think' })); say('chen', fill(VISIT_LINES.selfBook[0].text), 2800);
+        await sleep(3000); say('chen', VISIT_LINES.selfBook[1].text); await sleep(2400); setChen((c) => ({ ...c, pose: 'stand', view: 'side', expr: 'smile' }));
+      });
+      if (sofa) options.push(async () => {
+        await walk(setChen, chenRef, sofa.x, sofa.y + 6);
+        say('chen', VISIT_LINES.selfSleep[0].text); await sleep(1200);
+        setChen((c) => ({ ...c, x: sofa.x + 2, y: sofa.y - 8, lying: true, pose: 'stand', view: 'front', expr: 'closed', z: sofa.y + 1 }));
+        say('chen', VISIT_LINES.selfSleep[1].text, 2400);
+      });
+      if (!NO_WINDOW.has(room)) options.push(async () => {
+        await walk(setChen, chenRef, win.x, FLOOR_Y + 22);
+        setChen((c) => ({ ...c, view: 'back' })); await sleep(900); setChen((c) => ({ ...c, view: 'front' }));
+        say('chen', fill(VISIT_LINES.selfWindow[0].text)); await sleep(2200); say('chen', VISIT_LINES.selfWindow[1].text);
+      });
+      options.push(async () => {
+        const c0 = catBrain.cat; catBrain.hold(5000);
+        await walk(setChen, chenRef, c0.x + 14, c0.y + 2);
+        setChen((c) => ({ ...c, flip: true })); say('chen', fill(VISIT_LINES.selfCat[0].text)); catBrain.happy();
+        await sleep(2200); say('chen', VISIT_LINES.selfCat[1].text);
+      });
+      await pick(options)().catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visit?.active, room, placed.length, food.length, books.length, weather]);
 
   async function invite() {
     await guard(async () => {
@@ -397,8 +557,10 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
     }
   }
   const standUp = () => {
+    lastAct.current = Date.now();
+    if (chenRef.current.lying) { say('chen', pick(VISIT_LINES.wake).text); }
     setMe((a) => ({ ...a, pose: 'stand', view: 'side', flip: false, z: undefined, y: a.pose === 'sit' || a.pose === 'eat' || a.pose === 'read' ? Math.min(ROOM_H - 2, a.y + 6) : a.y }));
-    setChen((c) => ({ ...c, pose: 'stand', view: 'side', flip: true, z: undefined, y: c.pose === 'sit' || c.pose === 'eat' || c.pose === 'read' ? Math.min(ROOM_H - 2, c.y + 6) : c.y, expr: 'smile' }));
+    setChen((c) => ({ ...c, lying: false, pose: 'stand', view: 'side', flip: true, z: undefined, y: c.lying ? Math.min(ROOM_H - 2, c.y + 12) : c.pose === 'sit' || c.pose === 'eat' || c.pose === 'read' ? Math.min(ROOM_H - 2, c.y + 6) : c.y, expr: 'smile' }));
   };
 
   const love = {
@@ -552,7 +714,9 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
   }
 
   // ───────── rendering helpers ─────────
-  const lampOn = (f: OwnedFurniture) => (lampOff[f.id] === undefined ? night : !lampOff[f.id]);
+  const gloomy = weather === 'rain' || weather === 'cloudy' || weather === 'snow';
+  const autoLamp = night || (gloomy && part !== 'day') || weather === 'rain';
+  const lampOn = (f: OwnedFurniture) => (lampOff[f.id] === undefined ? autoLamp : !lampOff[f.id]);
   const actorEl = (a: Actor, who: '99' | 'chen') => {
     if (a.hidden) return null;
     const url = characterURL({ who, pose: a.pose, view: a.view, expr: a.expr, equip: who === '99' ? equip99 : equipChen, flip: a.flip });
@@ -575,19 +739,20 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
         <button className={room === 'study' ? 'on' : ''} onClick={() => setRoom('study')}>📚 書房</button>
         <button className={room === 'kitchen' ? 'on' : ''} onClick={() => setRoom('kitchen')} data-testid="tab-kitchen">🍳 廚房</button>
         <button onClick={() => navigate('/balcony')}>🌿 陽台</button>
-        <button onClick={() => navigate('/phone')}>📱 手機</button>
+        {areas.map((a) => <button key={a} className={room === a ? 'on' : ''} onClick={() => setRoom(a)} data-testid={`tab-${a}`}>{areaById.get(a)?.emoji} {ROOM_LABEL[a]}</button>)}
+        <button onClick={() => navigate('/map')} data-testid="tab-map">🗺️ 閱讀地圖</button>
       </div>
       <div className="scene-wrap">
         <div className={'scene' + (arrange ? ' arrange' : '')} ref={sceneRef} onClick={(e) => onSceneClick(e)} data-testid="room-scene" data-room={room}
           onPointerMove={dragMove} onPointerUp={dragUp} onPointerCancel={() => { dragStart.current = null; setDrag(null); }}>
           <img className="layer px" src={roomBg(room)} alt="" style={{ width: '100%', height: '100%' }} />
           {/* window with real-time sky */}
-          {(() => {
+          {!NO_WINDOW.has(room) && (() => {
             const dragging = drag?.kind === 'win';
             const wx = dragging ? drag.x : win.x, wy = dragging ? drag.y : win.y;
-            return <img className={'obj px' + (win.flip ? ' flipped' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} draggable={false} src={windowURL(part)} alt={`窗外：${DAYPART_LABEL[part]}`} data-testid="room-window"
+            return <img className={'obj px' + (win.flip ? ' flipped' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} draggable={false} src={windowURL(part, 52, 44, weather, tick, festivals.includes('midAutumn') && (night || part === 'dusk'))} alt={`窗外：${DAYPART_LABEL[part]}・${WEATHER_LABEL[weather].label}`} data-testid="room-window" data-weather={weather}
               style={objStyle(wx, wy, WINDOW_W, dragging ? 2800 : 2)} {...dragProps('win', 'window', win.x, win.y)}
-              onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; toast(`現在是${DAYPART_LABEL[part]} ${timeHM(now)}`, 'info'); }} />;
+              onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; toast(`現在是${DAYPART_LABEL[part]} ${timeHM(now)}・${WEATHER_LABEL[weather].emoji} ${WEATHER_LABEL[weather].label}・${SEASON_LABEL[seasonOf()]}`, 'info'); }} />;
           })()}
           {BALCONY_DOOR[room] && <img className="obj px" src={doorURL('balcony')} alt="陽台入口" data-testid="balcony-door" style={objStyle(BALCONY_DOOR[room]!.x, FLOOR_Y + 2, 28, 3)} onClick={(e) => { e.stopPropagation(); navigate('/balcony'); }} />}
           {ENTRY_DOOR[room] && <img className="obj px" src={doorURL('entry')} alt="大門" style={objStyle(ENTRY_DOOR[room]!.x, FLOOR_Y + 2, 28, 3)} onClick={(e) => { e.stopPropagation(); if (!visit?.active) toast('想見陳卷毛的話，可以按「邀請陳卷毛」', 'info'); }} />}
@@ -595,17 +760,22 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
             const d = def(f);
             const isShelf = d.category === 'bookshelf';
             const perRow = d.id === 'bookshelf_tall' ? 12 : 9;
-            const { url, w } = furnitureURL(d, { on: ((d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f)) || playing === f.id || !!toggled[f.id], frame: playing === f.id ? spin % 2 : ANIMATED.has(d.id) ? tick % 2 : 0, open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
+            const { url, w } = furnitureURL(d, { on: ((d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f)) || playing === f.id || !!toggled[f.id], frame: playing === f.id ? spin % 2 : ANIMATED.has(d.id) ? tick % 2 : 0, open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined, cards: d.category === 'cardWall' ? cardColors : undefined });
             const dragging = drag?.kind === 'furn' && drag.id === f.id;
             const riding = drag?.kind === 'win' && attached.includes(f.id);
             const fx = dragging ? drag.x : riding ? f.x + (drag.x - win.x) : f.x, fy = dragging ? drag.y : riding ? f.y + (drag.y - win.y) : f.y;
             const z = dragging ? 2800 : d.placement === 'wall' ? 4 : d.category === 'rug' ? 5 : d.placement === 'surface' ? Math.round(fy * 10) + 400 : Math.round(fy * 10);
+            const sway = weather === 'wind' && d.category === 'curtain' && !arrange;
             return (
-              <img key={f.id} draggable={false} className={'obj px' + (f.flip ? ' flipped' : '') + (wiggling[f.id] ? ' wiggle' : '') + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
+              <Fragment key={f.id}>{d.category === 'art' && f.photoId && <ArtInFrame photoId={f.photoId} x={fx} y={fy} w={d.w} h={d.h} z={z + 1} />}
+              <img key={f.id} draggable={false} className={'obj px' + (f.flip ? ' flipped' : '') + (sway ? ' sway' : '') + (wiggling[f.id] ? ' wiggle' : '') + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
                 style={objStyle(fx, fy, w, z)} {...dragProps('furn', f.id, f.x, f.y)}
-                onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} />
+                onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} /></Fragment>
             );
           })}
+          {desk && placed.filter((f) => def(f).category === 'desk').slice(0, 1).map((f) => <DeskDetails key={'desk' + f.id} desk={{ x: f.x, y: f.y, w: def(f).w, h: def(f).h }} state={desk} />)}
+          <FestivalDecor festivals={festivals} />
+          <CatSprite cat={catBrain.cat} bowl={catBowl} bookColor={lastBook ? CATEGORY_COLORS[lastBook.category] ?? '#9a8f86' : undefined} inert={!!placing || arrange} onTap={() => setCatMenu(true)} />
           {placedDev.map((d) => {
             const dd = deviceById.get(d.defId)!;
             const { url, w } = deviceURL(dd, night || dd.deviceType !== 'phone');
@@ -637,9 +807,10 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
           {hearts.map((h) => <div key={h.id} className="hearts" style={{ left: pct(h.x, ROOM_W), top: pct(h.y, ROOM_H) }}>{h.ch}</div>)}
           <div className="tint" style={{ background: TINT[part], zIndex: 2900 }} />
           <div className="scene-hud">
-            <span className="hud-pill">{ROOM_LABEL[room]} · {DAYPART_LABEL[part]} {timeHM(now)}</span>
+            <span className="hud-pill">{ROOM_LABEL[room]} · {DAYPART_LABEL[part]} {timeHM(now)} · <span data-testid="hud-weather">{WEATHER_LABEL[weather].emoji}</span>{festivals[0] ? ` ${FESTIVAL_INFO[festivals[0]].emoji}` : ''}</span>
             {visit?.active && <span className="hud-pill" style={{ background: '#fde9ea' }}>💗 陳卷毛在家</span>}
           </div>
+          {focus && <FocusOverlay startedAt={focus.startedAt} target={focus.target} bookTitle={books.find((b) => b.id === focus.bookId)?.title ?? ''} onEnd={() => setFocusEnd(true)} />}
           {arrange && !placing && <div className="place-hint" data-testid="arrange-hint">🛠 拖曳家具移動 · 點一下可收納／更換 · <button className="btn small" style={{ minHeight: 24, padding: '0 6px' }} onClick={(e) => { e.stopPropagation(); setArrange(false); }}>完成</button></div>}
           {placing && <div className="place-hint">點選要放「{placing.name}」的位置 · <button className="btn small" style={{ minHeight: 24, padding: '0 6px' }} onClick={(e) => { e.stopPropagation(); setPlacing(null); }}>取消</button></div>}
         </div>
@@ -677,6 +848,7 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
       ) : (
         <div className="action-bar">
           <button className="btn pink" onClick={invite} data-testid="invite-chen">💗<span>邀請陳卷毛</span></button>
+          <button className="btn" onClick={() => (focus ? setFocusEnd(true) : setFocusPick(true))} data-testid="focus-start">📖<span>{focus ? '結束專注' : '專注閱讀'}</span></button>
           <button className="btn" onClick={() => setStorage(true)}>📦<span>收納箱{stored.length + storedDev.length ? ` ${stored.length + storedDev.length}` : ''}</span></button>
 <button className={'btn' + (arrange ? ' primary' : '')} onClick={() => { setArrange((v) => !v); setDrag(null); setPlacing(null); }} data-testid="arrange-toggle">🛠<span>{arrange ? '完成擺設' : '擺設'}</span></button>
           <button className="btn" onClick={() => navigate('/shop')}><Icon name="gift" /><span>商店</span></button>
@@ -704,6 +876,48 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
           </div>
         )}
       </Sheet>
+      <Sheet open={catMenu} onClose={() => setCatMenu(false)} title={`🐱 ${pet?.name ?? '貓咪'}`}>
+        {pet && (
+          <div className="stack" data-testid="cat-menu">
+            <p className="muted" style={{ margin: 0 }}>{catBrain.cat.sleeping && lastBook ? `${pet.name}睡在妳剛看完的《${lastBook.title}》上。` : `黑白賓士貓，今天${petMood(pet)}。親密度 ${pet.affection}`}</p>
+            <button className="btn primary" onClick={() => { setCatMenu(false); run(async () => { const l = await petThePet(); catBrain.happy(); sfx('meow'); fxBurst('hearts', catBrain.cat.x, catBrain.cat.y - 18); say('99', l); }); }} data-testid="cat-pet">🤲 摸摸{pet.name}</button>
+            <b className="small">用冰箱裡的食物餵牠</b>
+            {food.filter((x) => x.quantity > 0).length === 0 ? <div className="row between"><span className="muted">冰箱空空的。</span><button className="btn small" onClick={() => navigate('/shop?tab=food')}>去買食物</button></div> : (
+              <div className="chips">{food.filter((x) => x.quantity > 0).map((x) => (
+                <button key={x.foodId} className="chip" data-testid={`cat-feed-${x.foodId}`} onClick={() => { setCatMenu(false); run(async () => {
+                  const line = await feedPet(x.foodId);
+                  const bx = clamp(catBrain.cat.x + 14, 14, ROOM_W - 14), by = clamp(catBrain.cat.y, FLOOR_Y + 24, ROOM_H - 4);
+                  setCatBowl({ x: bx, y: by, full: true }); sfx('pop');
+                  await catBrain.eat(bx - 12, by); setCatBowl({ x: bx, y: by, full: false }); sfx('meow'); fxBurst('hearts', bx - 12, by - 18); say('99', line);
+                  setTimeout(() => setCatBowl(null), 3000);
+                }); }}><img src={foodURL(x.foodId)} alt="" style={{ width: 16, verticalAlign: 'middle' }} /> {foodById.get(x.foodId)?.name} ×{x.quantity}</button>
+              ))}</div>
+            )}
+            <form className="row" onSubmit={(e) => { e.preventDefault(); const v = (new FormData(e.currentTarget).get('petname') as string) ?? ''; run(() => renamePet(v), '改好名字了'); }}>
+              <input className="input" name="petname" defaultValue={pet.name} maxLength={8} aria-label="貓咪名字" />
+              <button className="btn small">改名</button>
+            </form>
+          </div>
+        )}
+      </Sheet>
+      <Sheet open={focusPick} onClose={() => setFocusPick(false)} title="📖 專注閱讀">
+        <FocusPicker books={books.filter((b) => b.status === 'reading' || b.status === 'want' || b.status === 'paused')} onStart={(bookId, target) => { setFocusPick(false); run(async () => { await startFocus(bookId, target); if (!placed.some((f) => def(f).category === 'desk')) setRoom('study'); say('99', '開始專心看書！'); }); }} />
+      </Sheet>
+      <Sheet open={focusEnd} onClose={() => setFocusEnd(false)} title="結束專注">
+        {focus && <FocusEnder focus={focus} book={books.find((b) => b.id === focus.bookId)} onDone={async (endPage, keep) => {
+          setFocusEnd(false);
+          await run(async () => {
+            if (!keep) { await cancelFocus(); toast('已取消，這次不會記錄', 'info'); }
+            else {
+              const r = await endFocus(endPage);
+              if (!r) { toast('不到 1 分鐘，這次就不記錄了', 'info'); }
+              else { toast(`📖 記下了 ${r.session.minutes} 分鐘${r.coins ? `，+${r.coins} 知識幣` : ''}`, r.coins ? 'coin' : 'success'); for (const a of await checkAchievements()) toast(`🏆 解鎖成就「${a.name}」+${a.reward}`, 'coin'); }
+            }
+            setMe((a) => ({ ...a, pose: 'stand', view: 'front', y: Math.min(ROOM_H - 2, a.y + 6), z: undefined }));
+          });
+        }} />}
+      </Sheet>
+      {artView && artView.photoId && <ArtViewer art={artView} onClose={() => setArtView(null)} />}
       <Sheet open={!!note} onClose={() => setNote(null)} title={note?.title}>
         {note && <div className="love-note" data-testid="love-note"><p>{note.text}</p><span>— 陳卷毛</span></div>}
       </Sheet>
@@ -722,9 +936,9 @@ export default function RoomPage({ initial }: { initial?: SceneRoom }) {
           <div className="shop-grid">
             {stored.map((f) => { const d = def(f); const { url } = furnitureURL(d, { books: d.category === 'bookshelf' ? shelfData : undefined, now }); return (
               <div key={f.id} className="shop-item">
-                <div className="thumb"><img src={url} alt="" /></div>
-                <div className="name">{d.name}</div><div className="muted">{FURN_CAT_LABEL[d.category]}</div>
-                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'furn', id: f.id, name: d.name }); }} data-testid="place-item">擺到{ROOM_LABEL[room]}</button>
+                <div className="thumb">{f.photoId ? <ArtThumb photoId={f.photoId} /> : <img src={url} alt="" />}</div>
+                <div className="name">{f.title ?? d.name}</div><div className="muted">{FURN_CAT_LABEL[d.category]}</div>
+                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'furn', id: f.id, name: f.title ?? d.name }); }} data-testid="place-item">擺到{ROOM_LABEL[room]}</button>
               </div>
             ); })}
             {storedDev.map((d) => { const dd = deviceById.get(d.defId)!; return (
@@ -793,6 +1007,43 @@ function FurnitureMenu({ f, d, owned, onClose, onMove, onUse, onFlip }: { f: Own
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ArtInFrame({ photoId, x, y, w, h, z }: { photoId: string; x: number; y: number; w: number; h: number; z: number }) {
+  const url = usePhoto(photoId);
+  if (!url) return null;
+  const pctX = (v: number) => `${(v / ROOM_W) * 100}%`, pctY = (v: number) => `${(v / ROOM_H) * 100}%`;
+  return <img className="art-photo" src={url} alt="" style={{ left: pctX(x - w / 2 + 3), top: pctY(y - h + 3), width: pctX(w - 4), height: pctY(h - 4), zIndex: z }} />;
+}
+function ArtThumb({ photoId }: { photoId: string }) { const url = usePhoto(photoId); return url ? <img src={url} alt="" style={{ objectFit: 'cover', width: 56, height: 56, imageRendering: 'auto' }} /> : null; }
+function ArtViewer({ art, onClose }: { art: OwnedFurniture; onClose: () => void }) {
+  useEffect(() => { toast(`🖼️ ${art.title ?? '我的作品'}${art.artKind === 'poem' ? '・詩作' : art.artKind === 'print' ? '・手繪版畫' : ''}　— 99`, 'info'); }, [art.id]);
+  return <PhotoViewer ids={[art.photoId!]} onClose={onClose} />;
+}
+function FocusPicker({ books, onStart }: { books: { id: string; title: string }[]; onStart: (bookId: string, target: number) => void }) {
+  const [bookId, setBookId] = useState(books[0]?.id ?? '');
+  const [target, setTarget] = useState(25);
+  if (!books.length) return <Empty icon="book">書庫裡還沒有正在讀或想讀的書。先新增一本吧！</Empty>;
+  return (
+    <div className="stack">
+      <p className="muted" style={{ margin: 0 }}>開始後 99 會坐到書桌前看書，房間會安靜下來。結束時會自動幫妳記一筆閱讀紀錄。</p>
+      <Field label="讀哪一本？"><select value={bookId} onChange={(e) => setBookId(e.target.value)} data-testid="focus-book">{books.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select></Field>
+      <div className="chips">{[15, 25, 45, 60, 0].map((m) => <button key={m} className={'chip' + (target === m ? ' on' : '')} onClick={() => setTarget(m)}>{m ? `${m} 分鐘` : '不限時'}</button>)}</div>
+      <button className="btn primary" onClick={() => onStart(bookId, target)} data-testid="focus-go">開始專注</button>
+    </div>
+  );
+}
+function FocusEnder({ focus, book, onDone }: { focus: { startedAt: number }; book?: { currentPage: number; totalPages: number; title: string }; onDone: (endPage: number | undefined, keep: boolean) => void }) {
+  const mins = Math.floor((Date.now() - focus.startedAt) / 60000);
+  const [page, setPage] = useState<string>(book ? String(book.currentPage || '') : '');
+  return (
+    <div className="stack">
+      <p style={{ margin: 0 }}>這次專注了 <b>{mins}</b> 分鐘{book ? `，讀《${book.title}》` : ''}。</p>
+      <Field label={`讀到第幾頁？（選填${book?.totalPages ? `，共 ${book.totalPages} 頁` : ''}）`}><input type="number" inputMode="numeric" value={page} onChange={(e) => setPage(e.target.value)} data-testid="focus-page" /></Field>
+      <button className="btn primary" onClick={() => onDone(page ? Number(page) : undefined, true)} data-testid="focus-save">記下這次閱讀</button>
+      <button className="btn ghost" onClick={() => onDone(undefined, false)}>不記錄，直接結束</button>
     </div>
   );
 }

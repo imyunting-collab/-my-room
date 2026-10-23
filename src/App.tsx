@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { sfx } from './lib/sound';
+import { CardsPage, GalleryPage, MapPage } from './pages/Growth';
+import { getFocus } from './services/focus';
 import { db } from './db/idb';
 import { useBus, useLive, useReducedMotion } from './hooks';
 import { back, Link, match, splitPath, usePath } from './router';
@@ -59,11 +61,14 @@ const ROUTES: RouteDef[] = [
   { pattern: '/wallet', title: '知識幣錢包', el: () => <WalletPage /> },
   { pattern: '/settings', title: '設定與備份', el: () => <SettingsPage /> },
   { pattern: '/more', title: '更多', el: () => <MorePage /> },
+  { pattern: '/map', title: '閱讀地圖', el: () => <MapPage /> },
+  { pattern: '/cards', title: '書卡收藏', el: () => <CardsPage /> },
+  { pattern: '/gallery', title: '我的作品牆', el: () => <GalleryPage /> },
 ];
 
 const NAV: [string, string, string][] = [['/', '首頁', 'home'], ['/library', '書庫', 'library'], ['/add', '新增', 'plus'], ['/journal', '手札', 'journal'], ['/room', '房間', 'shelf']];
 const SIDE: [string, [string, string, string][]][] = [
-  ['閱讀', [['/', '首頁', 'home'], ['/library', '我的書庫', 'library'], ['/add', '新增閱讀', 'plus'], ['/journal', '閱讀手札', 'journal'], ['/calendar', '閱讀月曆', 'calendar'], ['/stats', '閱讀統計', 'chart'], ['/review', '年度回顧', 'star'], ['/achievements', '成就', 'trophy']]],
+  ['閱讀', [['/', '首頁', 'home'], ['/library', '我的書庫', 'library'], ['/add', '新增閱讀', 'plus'], ['/journal', '閱讀手札', 'journal'], ['/calendar', '閱讀月曆', 'calendar'], ['/stats', '閱讀統計', 'chart'], ['/review', '年度回顧', 'star'], ['/achievements', '成就', 'trophy'], ['/map', '閱讀地圖', 'star'], ['/cards', '書卡收藏', 'book']]],
   ['生活', [['/room', '我的房間', 'home'], ['/bookshelf', '動態書架', 'shelf'], ['/shop', '商店', 'gift'], ['/wardrobe', '衣櫃', 'shirt'], ['/fridge', '冰箱', 'fridge'], ['/balcony', '陽台', 'plant']]],
   ['設備與戀愛', [['/computer', '電腦', 'chart'], ['/tablet', '平板', 'book'], ['/phone', '手機', 'phone'], ['/love', '陳卷毛', 'heart'], ['/love-diary', '戀愛日記', 'pen'], ['/diary', '日記', 'journal']]],
   ['其他', [['/wallet', '知識幣錢包', 'wallet'], ['/settings', '設定與備份', 'gear']]],
@@ -79,6 +84,7 @@ export default function App() {
   const coins = useLive(balance, [], 0) ?? 0;
   const unread = useLive(async () => (await db.byIndex('chat', 'contactId', PARTNER_ID)).filter((m) => !m.read).length, [], 0) ?? 0;
   const visit = useLive(() => db.getKV<{ active: boolean }>('meta', 'visit', { active: false }), [], { active: false });
+  const focus = useLive(getFocus, [], null);
   const reduce = useReducedMotion();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -124,6 +130,11 @@ export default function App() {
           <a href="#/phone" className="icon-btn" aria-label="打開手機"><img className="px" src={portraitURL('chen', 'smile')} alt="" style={{ borderRadius: 6 }} />{unread > 0 && <span className="badge" data-testid="unread-badge">{unread}</span>}</a>
           <Link to="/more" className="icon-btn" aria-label="更多功能"><Icon name="more" size={22} /></Link>
         </header>
+        {focus && pathname !== '/room' && (
+          <a href="#/room?scene=study" data-testid="focus-banner" style={{ display: 'block', background: '#e3e8d6', borderBottom: '3px solid var(--ink)', padding: '6px 14px', fontSize: 13, fontWeight: 700, color: 'var(--ink)', textDecoration: 'none' }}>
+            📖 專注閱讀中（{Math.floor((Date.now() - focus.startedAt) / 60000)} 分鐘），回書桌 ›
+          </a>
+        )}
         {visit?.active && pathname !== '/room' && (
           <a href="#/room" style={{ display: 'block', background: 'var(--pink)', borderBottom: '3px solid var(--ink)', padding: '6px 14px', fontSize: 13, fontWeight: 700, color: 'var(--ink)', textDecoration: 'none' }}>
             💗 陳卷毛正在你家，回房間陪他 ›

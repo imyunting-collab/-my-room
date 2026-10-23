@@ -4,6 +4,8 @@ import { ACHIEVEMENTS, computeStats, type AchievementContext, type AchievementDe
 import { dateKey, uuid } from '../lib/util';
 import { GameError, txGrant } from './wallet';
 
+import { syncAreas, syncBookCards } from './progress';
+
 export const REWARD = { session: 5, first20: 5, dailyGoal: 10, finish: 30, sessionsPerDayCap: 6 };
 
 export type BookInput = Omit<Book, 'id' | 'createdAt' | 'updatedAt' | 'currentPage' | 'status'> & Partial<Pick<Book, 'currentPage' | 'status'>>;
@@ -174,6 +176,8 @@ export async function achievementContext(): Promise<AchievementContext> {
 
 /** Unlocks every newly satisfied achievement once and pays its reward once. */
 export async function checkAchievements(): Promise<AchievementDef[]> {
+  // finished books → 書卡; category progress → 閱讀地圖 areas
+  try { await syncBookCards(); await syncAreas(); } catch (e) { console.error(e); }
   const ctx = await achievementContext();
   const newly: AchievementDef[] = [];
   await db.tx(['achievements', 'wallet'], 'readwrite', async (t) => {

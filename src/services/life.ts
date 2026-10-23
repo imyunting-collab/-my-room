@@ -19,12 +19,14 @@ export function isUnlocked(u: Unlock | undefined, c: UnlockCtx): boolean {
   if (!u) return true;
   if (u.kind === 'achievement') return c.achievements.has(u.id);
   if (u.kind === 'books') return c.books >= u.n;
+  if (u.kind === 'festival') return false;
   return c.pages >= u.n;
 }
 export function unlockText(u?: Unlock): string {
   if (!u) return '';
   if (u.kind === 'achievement') return `解鎖條件：成就「${achievementById.get(u.id)?.name ?? u.id}」`;
   if (u.kind === 'books') return `解鎖條件：藏書 ${u.n} 本`;
+  if (u.kind === 'festival') return `${u.name}期間才買得到`;
   return `解鎖條件：累積 ${u.n} 頁`;
 }
 
@@ -33,6 +35,8 @@ export async function buyFurniture(defId: string) {
   const def = furnById.get(defId);
   if (!def) throw new GameError('找不到商品');
   if (!isUnlocked(def.unlock, await unlockContext())) throw new GameError('這件家具還沒解鎖');
+  if (def.special) throw new GameError('這件家具不能用買的喔');
+  if (def.limited) { const { festivalOpenForShop } = await import('./world'); if (!festivalOpenForShop(def.limited)) throw new GameError('節日限定，現在還買不到喔'); }
   await db.tx(['ownedFurniture', 'wallet'], 'readwrite', async (t) => {
     if ((await t.store('ownedFurniture').byIndex('defId', defId)).length) throw new GameError('已經擁有這件家具了');
     await txSpend(t, def.price, `購買家具「${def.name}」`, { type: 'furniture', id: defId });
@@ -126,12 +130,13 @@ export async function toggleFlip(kind: 'furn' | 'dev', id: string) {
 // The window is part of the room, not a piece of furniture, so its layout lives in meta.
 export interface WindowLayout { x: number; y: number; flip: boolean }
 export const WINDOW_W = 52, WINDOW_H = 44;
-export const DEFAULT_WINDOW: Record<SceneRoom, WindowLayout> = { bedroom: { x: 54, y: 66, flip: false }, study: { x: 76, y: 62, flip: false }, kitchen: { x: 150, y: 62, flip: false } };
+export const DEFAULT_WINDOW: Partial<Record<SceneRoom, WindowLayout>> & Record<'bedroom' | 'study' | 'kitchen', WindowLayout> = { bedroom: { x: 54, y: 66, flip: false }, study: { x: 76, y: 62, flip: false }, kitchen: { x: 150, y: 62, flip: false }, lab: { x: 150, y: 60, flip: false }, studio: { x: 60, y: 64, flip: false }, attic: { x: 96, y: 56, flip: false }, nook: { x: 130, y: 62, flip: false } };
+export const defaultWindow = (room: SceneRoom): WindowLayout => DEFAULT_WINDOW[room] ?? { x: 96, y: 62, flip: false };
 export function windowPos(x: number, y: number) {
   return { x: Math.round(clamp(x, WINDOW_W / 2 + 2, ROOM_W - WINDOW_W / 2 - 2)), y: Math.round(clamp(y, WINDOW_H + 4, FLOOR_Y - 4)) };
 }
 export async function getWindowLayout(room: SceneRoom): Promise<WindowLayout> {
-  return { ...DEFAULT_WINDOW[room], ...(await db.getKV<Partial<WindowLayout> | null>('meta', `window:${room}`, null) ?? {}) };
+  return { ...defaultWindow(room), ...(await db.getKV<Partial<WindowLayout> | null>('meta', `window:${room}`, null) ?? {}) };
 }
 export async function setWindowLayout(room: SceneRoom, patch: Partial<WindowLayout> | null) {
   if (patch === null) return db.setKV('meta', `window:${room}`, null);

@@ -97,12 +97,14 @@ function Page({ p, n, total, onPhoto }: { p: BookPage; n: number; total: number;
   );
 }
 
-export function DiaryBook({ pages, startId, title, onClose, onEdit, onFavorite }: {
+export function DiaryBook({ pages, startId, title, onClose, onEdit, onFavorite, extra }: {
   pages: BookPage[];
   startId?: string;
   title: string;
   onClose: () => void;
   onEdit?: (id: string) => void;
+  /** one more button in the top bar (e.g. 做成明信片) */
+  extra?: { label: string; onClick: (id: string) => void; testid?: string };
   onFavorite?: (id: string) => void;
 }) {
   const reduce = useReducedMotion();
@@ -162,6 +164,7 @@ export function DiaryBook({ pages, startId, title, onClose, onEdit, onFavorite }
           <b className="book-name">{title}</b>
           <span className="row" style={{ gap: 6 }}>
             {onFavorite && <button className="btn small ghost" onClick={() => onFavorite(cur.id)} aria-label={cur.favorite ? '取消收藏' : '收藏'} style={{ color: cur.favorite ? '#c9a227' : undefined }}>{cur.favorite ? '★' : '☆'}</button>}
+            {extra && <button className="btn small" onClick={() => extra.onClick(cur.id)} data-testid={extra.testid}>{extra.label}</button>}
             {onEdit && <button className="btn small" onClick={() => onEdit(cur.id)} data-testid="book-edit">✏️ 編輯</button>}
           </span>
         </div>

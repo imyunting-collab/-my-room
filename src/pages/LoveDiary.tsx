@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { db } from '../db/idb';
 import { useLive } from '../hooks';
 import { foodById } from '../data/catalog';
@@ -7,6 +7,10 @@ import { confirmDialog, Empty, Field, Icon, PhotoPicker, PhotoThumb, Sheet, Tabs
 import { dateKey, daysBetween, fmtDateTime, parseDateKey } from '../lib/util';
 import type { LoveMemory } from '../db/types';
 import { DiaryBook, type BookPage } from '../components/DiaryBook';
+import { renderPostcard } from '../lib/postcard';
+import { useEquip } from '../state';
+import { toast } from '../lib/bus';
+import { downloadBlob } from '../lib/util';
 
 const INTERACTION: Record<string, string> = { chat: '聊天', hug: '抱抱', kiss: '親親', sit: '一起坐著', meal: '一起吃飯', read: '一起看書', movie: '看電影', diary: '分享日記', gift: '送禮物' };
 
@@ -28,6 +32,7 @@ function Memories() {
   const [edit, setEdit] = useState<Partial<LoveMemory> | null>(null);
   const list = all.filter((m) => filter === 'all' || m.sourceType === filter);
   const [reading, setReading] = useState<string | null>(null);
+  const [card, setCard] = useState<LoveMemory | null>(null);
   const backToBook = useRef<string | null>(null);
   const pages: BookPage[] = list.slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((m) => ({
     id: m.id, date: m.date, title: m.title, content: m.content, photoIds: m.photoIds,
@@ -38,6 +43,7 @@ function Memories() {
     <div>
       {reading && pages.some((p) => p.id === reading) && (
         <DiaryBook pages={pages} startId={reading} title="戀愛日記" onClose={() => setReading(null)}
+          extra={{ label: '💌 明信片', testid: 'make-postcard', onClick: (id) => { const m = all.find((x) => x.id === id); if (m) setCard(m); } }}
           onEdit={(id) => { const m = all.find((x) => x.id === id); if (!m) return; backToBook.current = id; setReading(null); setEdit(m); }} />
       )}
       <p className="muted">「真實回憶」是你自己寫下的事；「遊戲紀錄」是在 MY ROOM 裡和陳卷毛（遊戲角色）互動後，你選擇收藏的片段。兩者會分開標示。</p>
@@ -60,6 +66,7 @@ function Memories() {
           </div>
         ))}
       </div>
+      {card && <PostcardSheet m={card} onClose={() => setCard(null)} />}
       <Sheet open={!!edit} onClose={closeEdit} title={edit?.id ? '編輯回憶' : '寫下回憶'}>{edit && <MemoryForm m={edit} onDone={closeEdit} />}</Sheet>
     </div>
   );
@@ -138,6 +145,36 @@ function Records() {
       <div className="card"><h2>🏠 到訪紀錄</h2>{visits.length === 0 ? <p className="muted">還沒有。</p> : visits.map((v) => (
         <div key={v.id} className="list-item" style={{ cursor: 'default' }}><div><b>{fmtDateTime(v.arrivedAt)}{v.departedAt ? ` – ${fmtDateTime(v.departedAt)}` : '（還在家裡）'}</b><div className="muted">{v.interactions.length ? v.interactions.map((i) => INTERACTION[i.type] ?? i.type).join('、') : '只是來坐坐'}</div></div></div>
       ))}</div>
+    </div>
+  );
+}
+
+function PostcardSheet({ m, onClose }: { m: LoveMemory; onClose: () => void }) {
+  const e99 = useEquip('99'), eChen = useEquip('chen');
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [url, setUrl] = useState('');
+  const { busy, run } = useAction();
+  useEffect(() => {
+    let alive = true, u = '';
+    renderPostcard({ title: m.title, date: m.date, content: m.content, photoId: m.photoIds[0], equip99: e99, equipChen: eChen })
+      .then((b) => { if (!alive) return; u = URL.createObjectURL(b); setBlob(b); setUrl(u); }).catch(() => toast('明信片做不出來，再試一次', 'error'));
+    return () => { alive = false; if (u) URL.revokeObjectURL(u); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id]);
+  const file = () => new File([blob!], `明信片-${m.date}-${m.title}.png`, { type: 'image/png' });
+  const canShare = !!blob && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file()] });
+  return (
+    <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true">
+      <div className="sheet">
+        <div className="grab" />
+        <div className="row between"><h3>💌 像素明信片</h3><button className="btn ghost small" onClick={onClose} aria-label="關閉">✕</button></div>
+        {url ? <img src={url} alt="明信片預覽" data-testid="postcard-img" style={{ width: '100%', border: '2px solid var(--ink)', borderRadius: 6 }} /> : <p className="muted">製作中…</p>}
+        <p className="small">存下來後可以自己用 LINE、IG 或訊息傳給他。這張圖只存在妳的手機裡，不會自動寄出。</p>
+        <div className="grid2">
+          <button className="btn primary" disabled={!blob || busy} onClick={() => blob && downloadBlob(blob, file().name)} data-testid="postcard-save">⬇ 存下來</button>
+          <button className="btn pink" disabled={!canShare || busy} onClick={() => run(async () => { try { await navigator.share({ files: [file()], title: m.title }); } catch { /* cancelled */ } })}>📤 分享</button>
+        </div>
+      </div>
     </div>
   );
 }

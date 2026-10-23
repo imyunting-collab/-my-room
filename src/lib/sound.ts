@@ -57,6 +57,7 @@ const SFX: Record<SfxName, (c: AudioContext, o: AudioNode, t: number) => void> =
   page: (c, o, t) => noise(c, o, t, 0.25, 0.18, 2500, 0.6),
   switch: (c, o, t) => tone(c, o, 1800, 1800, t, 0.03, 0.15, 'square'),
   boil: (c, o, t) => { noise(c, o, t, 1.2, 0.12, 900, 0.7); tone(c, o, N(91), N(91), t + 1.0, 0.4, 0.06, 'sine'); },
+  tick: (c, o, t) => tone(c, o, 2600, 2600, t, 0.025, 0.04, 'square'),
   sparkle: (c, o, t) => { [88, 93, 100].forEach((m, i) => tone(c, o, N(m), N(m), t + i * 0.06, 0.3, 0.06, 'sine')); },
 };
 

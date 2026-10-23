@@ -456,6 +456,136 @@ try {
       await page.click('[data-testid=water]');
       await page.waitForTimeout(400);
     });
+    // ───────── 生命感、閱讀、關係 ─────────
+    const idb = (fn, arg) => page.evaluate(([src, arg]) => new Promise((res, rej) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const db = r.result; const f = new Function('db', 'arg', 'res', src); try { f(db, arg, (v) => { db.close(); res(v); }); } catch (e) { db.close(); rej(e); } }; }), [fn.toString().replace(/^[^{]*{|}$/g, ''), arg]);
+    const setKV = (store, key, value) => idb((db, arg, res) => { const tx = db.transaction(arg.store, 'readwrite'); tx.objectStore(arg.store).put({ key: arg.key, value: arg.value }); tx.oncomplete = () => res(); }, { store, key, value });
+    const getAll = (store) => idb((db, arg, res) => { const g = db.transaction(arg).objectStore(arg).getAll(); g.onsuccess = () => res(g.result); }, store);
+    const putRow = (store, row) => idb((db, arg, res) => { const tx = db.transaction(arg.store, 'readwrite'); tx.objectStore(arg.store).put(arg.row); tx.oncomplete = () => res(); }, { store, row });
+    await e2e('下雨天：窗外下雨、99 坐在窗邊、陽台植物自動澆到水', async () => {
+      await setKV('settings', 'weatherOverride', 'rain');
+      const before = (await getAll('ownedPlants')).map((p) => p.lastWateredAt);
+      await go('/room?scene=bedroom');
+      await page.waitForSelector('[data-testid=room-window][data-weather=rain]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=actor-99]')?.getAttribute('data-pose') === 'sit', null, { timeout: 4000 });
+      await page.waitForTimeout(600);
+      const after = (await getAll('ownedPlants')).map((p) => p.lastWateredAt);
+      if (before.length && !after.some((t, i) => t > before[i])) throw new Error('plants not watered by rain');
+      await setKV('settings', 'weatherOverride', 'sunny');
+    });
+    await e2e('黑白貓：在房間閒晃、用冰箱的牛奶餵牠會扣掉一份', async () => {
+      await grant(50);
+      await go('/shop?tab=food');
+      await page.locator('[data-testid=shop-milk] [data-testid=buy]').click(); await page.waitForTimeout(300);
+      const milk0 = (await getAll('foodInventory')).find((x) => x.foodId === 'milk')?.quantity ?? 0;
+      await go('/room?scene=bedroom');
+      await page.waitForSelector('[data-testid=pet-cat]');
+      await page.locator('[data-testid=pet-cat]').click({ force: true });
+      await page.waitForSelector('[data-testid=cat-menu]');
+      await page.click('[data-testid=cat-feed-milk]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=pet-cat]')?.getAttribute('data-pose') === 'eat', null, { timeout: 8000 });
+      const milk1 = (await getAll('foodInventory')).find((x) => x.foodId === 'milk')?.quantity ?? 0;
+      if (milk1 !== milk0 - 1) throw new Error(`milk ${milk0} → ${milk1}`);
+      await page.waitForTimeout(4000);
+    });
+    await e2e('節日：聖誕節佈置會出現；限定家具不在期間時買不到', async () => {
+      await setKV('settings', 'festivalPreview', 'christmas');
+      await go('/room?scene=bedroom');
+      await page.waitForSelector('[data-testid=festival-banner]:has-text("Merry Christmas")');
+      await setKV('settings', 'festivalPreview', '');
+      await go('/shop?tab=limited');
+      await page.waitForSelector('[data-testid=shop-xmas_tree]');
+      const md = new Date().toISOString().slice(5, 10);
+      const open = md >= '12-01';
+      if (!open && await page.locator('[data-testid=shop-xmas_tree] [data-testid=buy]').count()) throw new Error('limited item buyable out of season');
+    });
+    await e2e('專注模式：坐到書桌看書，結束後自動產生一筆閱讀紀錄', async () => {
+      await go('/room?scene=study');
+      await page.click('[data-testid=focus-start]');
+      await page.click('[data-testid=focus-go]');
+      await page.waitForSelector('[data-testid=focus-overlay]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=actor-99]')?.getAttribute('data-pose') === 'read', null, { timeout: 4000 });
+      // pretend 12 minutes have passed
+      const f = (await getAll('meta')).find((r) => r.key === 'focus').value;
+      await setKV('meta', 'focus', { ...f, startedAt: Date.now() - 12 * 60000 });
+      await page.waitForTimeout(500);
+      await page.click('[data-testid=focus-end]');
+      await page.click('[data-testid=focus-save]');
+      await page.waitForSelector('[data-testid=focus-overlay]', { state: 'detached' });
+      const s0 = (await getAll('sessions')).filter((x) => x.tags.includes('專注模式'));
+      if (!s0.length || s0[0].minutes < 12) throw new Error('no focus session ' + JSON.stringify(s0));
+    });
+    await e2e('讀完一本詩集：拿到書卡、解鎖星空屋頂', async () => {
+      const book = { id: 'poems-1', title: '測試詩集', author: '99', category: '詩集', totalPages: 80, currentPage: 80, status: 'finished', finishDate: new Date().toLocaleDateString('sv'), tags: [], createdAt: Date.now(), updatedAt: Date.now() };
+      await putRow('books', book);
+      await putRow('quotes', { id: 'q-poem', bookId: 'poems-1', text: '浪沒有名字，也一直在。', tags: [], createdAt: Date.now() });
+      await go('/cards');
+      await page.waitForSelector('[data-testid=book-card]:has-text("測試詩集")');
+      if (!(await page.locator('[data-testid=book-card]:has-text("測試詩集")').textContent()).includes('浪沒有名字')) throw new Error('quote not on card');
+      await go('/map');
+      await page.waitForSelector('[data-testid=area-rooftop][data-unlocked="1"]');
+      await go('/room?scene=bedroom');
+      await page.click('[data-testid=tab-rooftop]'); await page.waitForTimeout(500);
+      if (!(await page.locator('[data-defid=telescope]').count())) throw new Error('rooftop not furnished');
+    });
+    await e2e('作品牆：上傳作品照片、掛到房間牆上', async () => {
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+      await go('/gallery');
+      await page.setInputFiles('[data-testid=art-file]', { name: 'wave.png', mimeType: 'image/png', buffer: png });
+      await page.fill('[data-testid=art-title]', '無名浪');
+      await page.click('[data-testid=art-save]');
+      await page.waitForSelector('[data-testid=artwork]:has-text("無名浪")');
+      await page.click('[data-testid=art-hang]');
+      await page.waitForURL(/scene=bedroom/);
+      await page.waitForSelector('.art-photo');
+    });
+    await e2e('遠距離：兩個時鐘、見面倒數；見面當天房間有佈置', async () => {
+      await go('/');
+      await page.click('[data-testid=ld-edit]');
+      await page.selectOption('[data-testid=ld-tz]', 'Europe/London');
+      await page.fill('[data-testid=ld-meet]', new Date().toLocaleDateString('sv'));
+      await page.click('[data-testid=ld-save]'); await page.waitForTimeout(400);
+      await page.waitForSelector('[data-testid=meet-countdown]:has-text("就是今天")');
+      const me = await page.locator('[data-testid=clock-me]').textContent(), him = await page.locator('[data-testid=clock-him]').textContent();
+      if (me === him) throw new Error('clocks identical');
+      await go('/room?scene=bedroom');
+      await page.waitForSelector('[data-testid=festival-banner]:has-text("歡迎回來")');
+      await setKV('settings', 'longDistance', { partnerTz: 'Europe/London', partnerCity: '', nextMeet: '', myBirthday: '', partnerBirthday: '' });
+    });
+    await e2e('本週雙人任務會顯示 3 個', async () => {
+      await go('/');
+      await page.waitForSelector('[data-testid=quests-card]');
+      if ((await page.locator('[data-testid=quests-card] .quest').count()) !== 3) throw new Error('quest count');
+    });
+    await e2e('日記選了「難過」，陳卷毛來時先問妳還好嗎；他會自己找事做', async () => {
+      await go('/diary');
+      await page.click('[data-testid=new-diary]');
+      await page.fill('input[name=diary-title]', '有點難過的一天');
+      await page.fill('textarea[name=diary-content]', '今天不太順。');
+      await page.click('button.chip:has-text("難過")');
+      await page.click('[data-testid=save-diary]'); await page.waitForTimeout(400);
+      await go('/room?scene=bedroom');
+      await page.click('[data-testid=invite-chen]');
+      await page.waitForSelector('.scene .bubble:has-text("妳日記寫的")', { timeout: 8000 });
+      // leave him alone: he does something on his own (talks without being asked)
+      await page.waitForTimeout(6000);
+      const seen = new Set();
+      for (let i = 0; i < 30; i++) { for (const t of await page.locator('.scene .bubble').allTextContents()) seen.add(t); if ([...seen].some((t) => /冰箱|書架|這本|瞇一下|外面|摸摸/.test(t))) break; await page.waitForTimeout(1000); }
+      if (![...seen].some((t) => /冰箱|書架|這本|瞇一下|外面|摸摸/.test(t))) throw new Error('he did nothing on his own: ' + [...seen].join(' / '));
+      await page.waitForTimeout(4000);
+      await page.click('[data-testid=act-leave]');
+      await page.waitForSelector('[data-testid=actor-chen]', { state: 'detached', timeout: 12000 });
+    });
+    await e2e('戀愛回憶可以做成像素明信片', async () => {
+      await go('/love-diary');
+      await page.click('[data-testid=new-memory]');
+      await page.fill('input[name=memory-title]', '海邊');
+      await page.click('[data-testid=save-memory]'); await page.waitForTimeout(400);
+      await page.click('[data-testid=memory-row]:has-text("海邊")');
+      await page.click('[data-testid=make-postcard]');
+      await page.waitForSelector('[data-testid=postcard-img]', { timeout: 8000 });
+      const w = await page.locator('[data-testid=postcard-img]').evaluate((img) => img.naturalWidth);
+      if (w !== 1200) throw new Error('postcard width ' + w);
+    });
     await e2e('關閉後重新開啟，所有資料仍存在', async () => {
       // close the app tab and open a new one in the same browser profile
       const p2 = await ctx.newPage();
@@ -467,7 +597,7 @@ try {
     });
     await e2e('手機版主要頁面沒有水平溢出', async () => {
       const p3 = await ctx.newPage();
-      for (const r of ['/', '/library', '/add', '/journal', '/room', '/balcony', '/shop', '/wardrobe', '/fridge', '/computer', '/tablet', '/phone', '/love', '/love-diary', '/settings', '/stats', '/review']) {
+      for (const r of ['/', '/library', '/add', '/journal', '/room', '/balcony', '/shop', '/wardrobe', '/fridge', '/computer', '/tablet', '/phone', '/love', '/love-diary', '/settings', '/stats', '/review', '/map', '/cards', '/gallery', '/room?scene=rooftop']) {
         await p3.goto(`http://localhost:${PORT}/#${r}`); await p3.waitForTimeout(250);
         if (await p3.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) throw new Error('overflow on ' + r);
       }

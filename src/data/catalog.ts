@@ -9,18 +9,19 @@ export const STYLE_LABEL: Record<FurnStyle, string> = {
 export type FurnCategory =
   | 'desk' | 'chair' | 'bed' | 'clock' | 'bookshelf' | 'fridge' | 'wardrobe' | 'lamp' | 'rug' | 'curtain'
   | 'plantShelf' | 'deco' | 'sofa' | 'table' | 'projector' | 'photoWall' | 'mug' | 'pillow' | 'readingLamp' | 'cabinet' | 'recordPlayer'
-  | 'cute' | 'kitchenware' | 'garden' | 'counter' | 'sink';
+  | 'cute' | 'kitchenware' | 'garden' | 'counter' | 'sink' | 'art' | 'cardWall' | 'festive';
 export const FURN_CAT_LABEL: Record<FurnCategory, string> = {
   desk: '書桌', chair: '椅子', bed: '床', clock: '時鐘', bookshelf: '書櫃', fridge: '冰箱', wardrobe: '衣櫃', lamp: '桌燈',
   rug: '地毯', curtain: '窗簾', plantShelf: '植物架', deco: '裝飾品', sofa: '沙發', table: '餐桌', projector: '投影機',
   photoWall: '照片牆', mug: '馬克杯', pillow: '抱枕', readingLamp: '閱讀燈', cabinet: '櫃子', recordPlayer: '唱片機',
-  cute: '可愛小物', kitchenware: '廚房小物', garden: '陽台小物', counter: '流理臺', sink: '洗手台',
+  cute: '可愛小物', kitchenware: '廚房小物', garden: '陽台小物', counter: '流理臺', sink: '洗手台', art: '作品', cardWall: '書卡牆', festive: '節日限定',
 };
 
 export type Unlock =
   | { kind: 'achievement'; id: string }
   | { kind: 'books'; n: number }
-  | { kind: 'pages'; n: number };
+  | { kind: 'pages'; n: number }
+  | { kind: 'festival'; name: string };
 
 export interface FurnitureDef {
   id: string;
@@ -31,7 +32,7 @@ export interface FurnitureDef {
   placement: 'floor' | 'wall' | 'surface';
   w: number; // sprite logical size
   h: number;
-  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf' | 'music' | 'act';
+  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf' | 'music' | 'act' | 'art' | 'cards';
   love?: boolean;
   unlock?: Unlock;
   starter?: { room: RoomId; x: number; y: number };
@@ -40,11 +41,17 @@ export interface FurnitureDef {
   act?: FurnAct;
   /** which shop shelf it belongs to */
   area?: 'room' | 'kitchen' | 'balcony' | 'love';
+  /** not sold: comes from the reading map / quests / the gallery */
+  special?: boolean;
+  /** only sold around this festival */
+  limited?: import('../services/world').Festival;
+  /** reward of a couple quest */
+  quest?: boolean;
 }
 
 export type ActFx = 'hearts' | 'notes' | 'drops' | 'sparkles' | 'bubbles' | 'steam' | 'stars' | 'flash' | 'zzz';
 export type SfxName = 'tap' | 'coin' | 'pop' | 'squeak' | 'brew' | 'water' | 'ding' | 'chime' | 'meow' | 'woof' | 'bubble' | 'clink' | 'clang'
-  | 'sizzle' | 'whirr' | 'tweet' | 'twinkle' | 'shutter' | 'paper' | 'gacha' | 'kiss' | 'hug' | 'message' | 'door' | 'page' | 'switch' | 'boil' | 'sparkle';
+  | 'sizzle' | 'whirr' | 'tweet' | 'twinkle' | 'shutter' | 'paper' | 'gacha' | 'kiss' | 'hug' | 'message' | 'door' | 'page' | 'switch' | 'boil' | 'sparkle' | 'tick';
 export interface FurnAct {
   verb: string;              // menu / button label
   lines: string[];           // what 99 says
@@ -178,6 +185,49 @@ export const FURNITURE: FurnitureDef[] = [
     act: { verb: '坐一下', lines: ['坐著發呆也很好', '看看天空'], chen: ['坐過來一點。'], fx: 'hearts', sfx: 'pop', sit: true } }),
   F({ id: 'telescope', name: '小望遠鏡', category: 'garden', style: 'dark', price: 65, placement: 'floor', w: 20, h: 28, interaction: 'act', area: 'balcony',
     act: { verb: '看天空', lines: ['看到星星了！', '那朵雲好像熊熊', '月亮今天好圓'], chen: ['妳看那顆最亮的，送妳。'], fx: 'stars', sfx: 'twinkle', ms: 1800 } }),
+
+  // ── 閱讀地圖區域的道具（不販售）──
+  F({ id: 'poem_board', name: '詩句黑板', category: 'cute', style: 'dark', price: 0, placement: 'floor', w: 28, h: 34, interaction: 'act', special: true,
+    act: { verb: '讀一句詩', lines: ['寫一句今天的詩', '把喜歡的句子寫在黑板上'], fx: 'stars', sfx: 'chime', note: true } }),
+  F({ id: 'microscope', name: '顯微鏡', category: 'cute', style: 'cream', price: 0, placement: 'surface', w: 14, h: 18, interaction: 'act', special: true,
+    act: { verb: '看顯微鏡', lines: ['細胞在動欸！', '葉子的紋路好漂亮', '原來水裡有這麼多小生物'], fx: 'stars', sfx: 'twinkle', pose: 'read', ms: 1600 } }),
+  F({ id: 'chem_set', name: '實驗燒杯', category: 'cute', style: 'cream', price: 0, placement: 'surface', w: 18, h: 14, interaction: 'act', special: true,
+    act: { verb: '做實驗', lines: ['冒泡泡了！', '顏色變粉紅色了～', '成功！（大概）'], fx: 'bubbles', sfx: 'bubble', wiggle: true } }),
+  F({ id: 'globe', name: '地球儀', category: 'cute', style: 'wood', price: 0, placement: 'surface', w: 14, h: 18, interaction: 'act', special: true,
+    act: { verb: '轉地球儀', lines: ['轉到哪裡就去哪裡旅行！', '他現在在地球的這邊…', '好想一起去這裡'], fx: 'sparkles', sfx: 'whirr', wiggle: true } }),
+  F({ id: 'easel', name: '畫架', category: 'cute', style: 'wood', price: 0, placement: 'floor', w: 26, h: 40, interaction: 'act', special: true,
+    act: { verb: '畫畫', lines: ['畫了一片藍色的海', '今天的天空畫起來是粉紅色', '再一筆就完成了'], fx: 'sparkles', sfx: 'paper', pose: 'work', ms: 1800 } }),
+  F({ id: 'print_press', name: '版畫壓印機', category: 'cute', style: 'dark', price: 0, placement: 'floor', w: 30, h: 26, interaction: 'act', special: true,
+    act: { verb: '印一張版畫', lines: ['印出一張藍色的浪！', '每一張都不一樣，這就是手作的好'], fx: 'sparkles', sfx: 'clang', pose: 'work', wiggle: true, ms: 1600 } }),
+  F({ id: 'old_trunk', name: '舊皮箱', category: 'cute', style: 'dark', price: 0, placement: 'floor', w: 30, h: 20, interaction: 'act', special: true,
+    act: { verb: '打開皮箱', lines: ['裡面有一張舊地圖…', '找到一封很久以前的信'], fx: 'sparkles', sfx: 'paper', note: true } }),
+  // ── 作品牆／書卡牆 ──
+  F({ id: 'art_frame', name: '我的作品', category: 'art', style: 'wood', price: 0, placement: 'wall', w: 30, h: 34, interaction: 'art', special: true }),
+  F({ id: 'card_wall', name: '書卡展示牆', category: 'cardWall', style: 'wood', price: 20, placement: 'wall', w: 46, h: 26, interaction: 'cards', area: 'room', desc: '掛上讀完的書卡（每讀完一本會得到一張）。' }),
+  // ── 節日限定 ──
+  F({ id: 'xmas_tree', name: '聖誕樹', category: 'festive', style: 'forest', price: 80, placement: 'floor', w: 30, h: 46, interaction: 'act', limited: 'christmas',
+    act: { verb: '點燈', lines: ['聖誕樹亮起來了！', '許一個願望～'], chen: ['禮物放在樹下了，猜猜是什麼？'], fx: 'stars', sfx: 'twinkle', toggle: true } }),
+  F({ id: 'snowman', name: '雪人娃娃', category: 'festive', style: 'cream', price: 40, placement: 'floor', w: 18, h: 24, interaction: 'act', limited: 'christmas',
+    act: { verb: '抱雪人', lines: ['軟軟的雪人！', '冬天也不冷了'], fx: 'sparkles', sfx: 'squeak', wiggle: true } }),
+  F({ id: 'fireworks_jar', name: '煙火罐', category: 'festive', style: 'candy', price: 35, placement: 'surface', w: 12, h: 14, interaction: 'act', limited: 'newyear',
+    act: { verb: '放小煙火', lines: ['新年快樂！', '今年也要一起讀很多書'], fx: 'stars', sfx: 'pop' } }),
+  F({ id: 'red_lantern', name: '紅燈籠', category: 'festive', style: 'candy', price: 40, placement: 'floor', w: 16, h: 30, interaction: 'act', limited: 'lunarNewYear',
+    act: { verb: '點燈籠', lines: ['紅紅火火！', '新年快樂，恭喜發財'], chen: ['紅包拿來～（開玩笑的）'], fx: 'sparkles', sfx: 'switch', toggle: true } }),
+  F({ id: 'choco_box', name: '愛心巧克力', category: 'festive', style: 'candy', price: 30, placement: 'surface', w: 14, h: 10, interaction: 'act', limited: 'valentine', love: true,
+    act: { verb: '吃一顆', lines: ['好甜～', '這顆是草莓口味！'], chen: ['妳的那盒我也要吃一顆。'], fx: 'hearts', sfx: 'pop' } }),
+  F({ id: 'rabbit_lantern', name: '兔子燈籠', category: 'festive', style: 'cream', price: 45, placement: 'floor', w: 20, h: 24, interaction: 'act', limited: 'midAutumn',
+    act: { verb: '點燈籠', lines: ['兔子亮起來了～', '月亮好圓'], chen: ['今天的月亮跟妳一樣圓…不是，一樣亮。'], fx: 'sparkles', sfx: 'switch', toggle: true } }),
+  F({ id: 'mooncake_box', name: '月餅禮盒', category: 'festive', style: 'dark', price: 40, placement: 'surface', w: 18, h: 10, interaction: 'act', limited: 'midAutumn', desc: '每天可以拿 1 個月餅放進冰箱。',
+    act: { verb: '拿月餅', lines: ['蛋黃酥！放進冰箱～'], fx: 'sparkles', sfx: 'paper', food: 'mooncake', foodPerDay: 1 } }),
+  // ── 雙人任務獎勵（不販售）──
+  F({ id: 'tent_fort', name: '枕頭帳篷', category: 'cute', style: 'candy', price: 0, placement: 'floor', w: 40, h: 34, interaction: 'act', quest: true, special: true, love: true,
+    act: { verb: '鑽進帳篷', lines: ['秘密基地！', '在裡面看書好舒服'], chen: ['我也要進去！擠一下～'], fx: 'hearts', sfx: 'pop', sit: true } }),
+  F({ id: 'puzzle_wall', name: '我們的拼圖', category: 'cute', style: 'wood', price: 0, placement: 'wall', w: 34, h: 26, interaction: 'act', quest: true, special: true, love: true,
+    act: { verb: '看拼圖', lines: ['一起拼了好久的拼圖', '最後一片是他放的'], chen: ['下次拼一千片的！'], fx: 'hearts', sfx: 'sparkle' } }),
+  F({ id: 'beanbag_pair', name: '雙人懶骨頭', category: 'cute', style: 'candy', price: 0, placement: 'floor', w: 44, h: 22, interaction: 'act', quest: true, special: true, love: true,
+    act: { verb: '窩一起', lines: ['陷進去了～', '兩個人剛剛好'], chen: ['這個位置是我的。（擠過來）'], fx: 'hearts', sfx: 'pop', sit: true, wiggle: true } }),
+  F({ id: 'swap_shelf', name: '交換書架', category: 'cute', style: 'wood', price: 0, placement: 'floor', w: 30, h: 40, interaction: 'act', quest: true, special: true, love: true,
+    act: { verb: '翻翻他的書', lines: ['他畫了重點欸', '書裡夾了一張紙條！'], chen: ['那本是我推薦的，看完要跟我說心得。'], fx: 'sparkles', sfx: 'page', note: true } }),
 
   // ── love furniture ──
   F({ id: 'sofa_love', name: '雙人沙發', category: 'sofa', style: 'cafe', price: 120, placement: 'floor', w: 56, h: 30, interaction: 'sofa', love: true }),
@@ -321,6 +371,7 @@ export const FOODS: FoodDef[] = [
   { id: 'juice', name: '柳橙汁', price: 9, desc: '早上來一杯。' },
   { id: 'cake', name: '草莓小蛋糕', price: 15, desc: '值得慶祝的日子。' },
   { id: 'waffle', name: '格子鬆餅', price: 12, desc: '鬆餅機現做，淋蜂蜜。' },
+  { id: 'mooncake', name: '蛋黃酥', price: 14, desc: '中秋限定的月餅。' },
 ];
 
 export interface PlantDef {

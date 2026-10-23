@@ -7,6 +7,7 @@ import { confirmDialog, Field, Icon, Sheet, useAction } from '../ui';
 import { DAYPART_LABEL, DEFAULT_DAYPARTS, dateKey, downloadText, type DayPart, type DayPartRanges } from '../lib/util';
 import { toast } from '../lib/bus';
 import { SoundSettings } from '../components/SoundSettings';
+import { FESTIVAL_INFO, naturalWeather, WEATHER_LABEL, type Festival, type Weather } from '../services/world';
 
 export default function SettingsPage() {
   const { busy, run } = useAction();
@@ -34,6 +35,7 @@ export default function SettingsPage() {
   return (
     <div>
       <SoundSettings />
+      <WorldPreview />
       <div className="card">
         <h2><Icon name="backup" />資料備份與還原</h2>
         <p className="small">所有書籍、日記、照片、聊天與戀愛紀錄都只存在<b>這台裝置的瀏覽器</b>裡，不會上傳到任何伺服器。本機保存不等於自動同步：換手機或清除瀏覽器資料前，請先匯出備份。</p>
@@ -107,6 +109,28 @@ export default function SettingsPage() {
           </div>
         )}
       </Sheet>
+    </div>
+  );
+}
+
+function WorldPreview() {
+  const w = useLive(() => db.getKV<Weather | ''>('settings', 'weatherOverride', ''), [], '') ?? '';
+  const f = useLive(() => db.getKV<Festival | ''>('settings', 'festivalPreview', ''), [], '') ?? '';
+  const natural = naturalWeather();
+  return (
+    <div className="card" data-testid="world-preview">
+      <h2>🌦️ 天氣與節日</h2>
+      <p className="small">天氣每天隨機（今天是 {WEATHER_LABEL[natural].emoji} {WEATHER_LABEL[natural].label}），節日會依日期自動出現。想先看看效果，可以在這裡指定：</p>
+      <b className="small">天氣</b>
+      <div className="chips" style={{ marginBottom: 10 }}>
+        <button className={'chip' + (!w ? ' on' : '')} onClick={() => db.setKV('settings', 'weatherOverride', '')}>自動</button>
+        {(Object.keys(WEATHER_LABEL) as Weather[]).map((k) => <button key={k} className={'chip' + (w === k ? ' on' : '')} onClick={() => db.setKV('settings', 'weatherOverride', k)} data-testid={`weather-${k}`}>{WEATHER_LABEL[k].emoji} {WEATHER_LABEL[k].label}</button>)}
+      </div>
+      <b className="small">預覽節日佈置</b>
+      <div className="chips">
+        <button className={'chip' + (!f ? ' on' : '')} onClick={() => db.setKV('settings', 'festivalPreview', '')}>關閉預覽</button>
+        {(Object.keys(FESTIVAL_INFO) as Festival[]).map((k) => <button key={k} className={'chip' + (f === k ? ' on' : '')} onClick={() => db.setKV('settings', 'festivalPreview', k)} data-testid={`festival-${k}`}>{FESTIVAL_INFO[k].emoji} {FESTIVAL_INFO[k].name}</button>)}
+      </div>
     </div>
   );
 }

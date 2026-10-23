@@ -3,6 +3,7 @@ import type { FurnStyle, FurnitureDef, DeviceDef, PlantDef } from '../data/catal
 import type { DayPart } from '../lib/util';
 import { Painter, shade, sprite } from './pixel';
 import { CUTE } from './cute';
+import { CUTE2 } from './cute2';
 
 interface Pal { main: string; dark: string; light: string; accent: string; fabric: string }
 export const PAL: Record<FurnStyle, Pal> = {
@@ -16,7 +17,7 @@ export const PAL: Record<FurnStyle, Pal> = {
 
 export interface ShelfBook { color: string; finished: boolean; h: number }
 
-export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boolean; books?: ShelfBook[]; rows?: number; now?: Date; frame?: number } = {}): { url: string; w: number; h: number } {
+export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boolean; books?: ShelfBook[]; rows?: number; now?: Date; frame?: number; cards?: string[] } = {}): { url: string; w: number; h: number } {
   const c = PAL[def.style];
   let w = def.w, h = def.h;
   if (def.category === 'bookshelf') {
@@ -28,7 +29,7 @@ export function furnitureURL(def: FurnitureDef, opts: { on?: boolean; open?: boo
     return { url: sprite(key, w, h, (p) => drawShelf(p, c, w, rows, books)), w, h };
   }
   const minute = opts.now ? `${opts.now.getHours()}:${opts.now.getMinutes()}` : '';
-  const key = `furn|${def.id}|${opts.on ? 1 : 0}|${opts.open ? 1 : 0}|${def.category === 'clock' ? minute : ''}|${opts.frame ?? 0}`;
+  const key = `furn|${def.id}|${opts.on ? 1 : 0}|${opts.open ? 1 : 0}|${def.category === 'clock' ? minute : ''}|${opts.frame ?? 0}|${(opts.cards ?? []).join(',')}`;
   return { url: sprite(key, w, h, (p) => drawFurniture(p, def, c, opts)), w, h };
 }
 
@@ -94,7 +95,9 @@ export function bedBlanketURL(def: FurnitureDef): string {
   });
 }
 
-function drawFurniture(p: Painter, def: FurnitureDef, c: Pal, o: { on?: boolean; open?: boolean; now?: Date; frame?: number }) {
+function drawFurniture(p: Painter, def: FurnitureDef, c: Pal, o: { on?: boolean; open?: boolean; now?: Date; frame?: number; cards?: string[] }) {
+  const cute2 = CUTE2[def.id];
+  if (cute2) { cute2(p, def, o); return; }
   const cute = CUTE[def.id];
   if (cute) { cute(p, def, o); return; }
   const { w, h } = def;
@@ -353,6 +356,7 @@ export function foodURL(id: string): string {
       case 'juice': p.r(3, 2, 8, 11, '#e9f3f6'); p.r(4, 5, 6, 7, '#f39b45'); p.r(8, 0, 1, 5, '#e05c6e'); p.r(4, 5, 6, 1, '#f8bd7b'); break;
       case 'cake': p.r(2, 6, 10, 7, '#fbf7ef'); p.r(2, 6, 10, 2, '#fbd6df'); p.r(2, 10, 10, 1, '#f2b8c6'); p.r(6, 3, 3, 3, '#e05c6e'); p.p(7, 2, '#6d8765'); break;
       case 'waffle': p.r(1, 3, 12, 9, '#e8b066'); p.r(1, 3, 12, 1, '#f6cf8a'); for (let x = 2; x < 13; x += 3) for (let y = 5; y < 12; y += 3) p.p(x, y, '#c98a3c'); p.r(5, 1, 4, 3, '#fbf7ef'); p.r(3, 5, 3, 2, '#f3c46b'); break;
+      case 'mooncake': p.rows([[3, 3, 10], [4, 2, 11]], '#e8b066'); p.r(1, 5, 12, 6, '#e8b066'); p.r(2, 10, 10, 2, '#c98a3c'); p.r(5, 6, 4, 3, '#f6cf8a'); p.p(6, 7, '#c98a3c'); p.p(4, 4, '#2b1d1a'); p.p(9, 4, '#2b1d1a'); break;
       default: p.r(2, 2, 10, 10, '#d99865');
     }
   });
@@ -420,19 +424,23 @@ export function plantURL(def: PlantDef, stage: number, thirsty: boolean): string
 }
 
 // ───────── window with real-time sky ─────────
-export function windowURL(part: DayPart, w = 52, h = 44): string {
-  return sprite(`win|${part}|${w}x${h}`, w, h, (p) => {
+export function windowURL(part: DayPart, w = 52, h = 44, weather: 'sunny' | 'cloudy' | 'rain' | 'wind' | 'snow' = 'sunny', frame = 0, moon = false): string {
+  return sprite(`win|${part}|${w}x${h}|${weather}|${weather === 'sunny' || weather === 'cloudy' ? 0 : frame % 2}|${moon ? 1 : 0}`, w, h, (p) => {
     const skies: Record<DayPart, [string, string]> = {
       dawn: ['#f7c6b3', '#c9d7ea'], day: ['#8fcbea', '#cfe9f5'], dusk: ['#f39b65', '#f6d29a'], night: ['#26354d', '#3a4d6e'], midnight: ['#141c2b', '#1f2a40'],
     };
-    const [top, bottom] = skies[part];
+    let [top, bottom] = skies[part];
+    const gloomy = weather === 'rain' || weather === 'cloudy' || weather === 'snow';
+    if (gloomy) { top = shade(top, part === 'day' || part === 'dawn' ? -0.18 : -0.08); bottom = shade(bottom, -0.12); if (part === 'day') { top = '#a9b8c6'; bottom = '#c8d2da'; } }
     p.r(0, 0, w, h, '#f3e7d2');
     p.r(3, 3, w - 6, h - 6, bottom); p.r(3, 3, w - 6, Math.floor((h - 6) / 2), top);
-    if (part === 'day' || part === 'dawn') { p.r(8, 10, 10, 3, '#ffffff'); p.r(10, 8, 6, 2, '#ffffff'); p.r(w - 18, 18, 9, 2, '#ffffff'); p.r(w - 16, 16, 5, 2, '#ffffff'); }
-    if (part === 'day') { p.r(w - 15, 6, 6, 6, '#fff1b8'); p.r(w - 14, 5, 4, 8, '#fff1b8'); }
+    if (!gloomy && (part === 'day' || part === 'dawn')) { p.r(8, 10, 10, 3, '#ffffff'); p.r(10, 8, 6, 2, '#ffffff'); p.r(w - 18, 18, 9, 2, '#ffffff'); p.r(w - 16, 16, 5, 2, '#ffffff'); }
+    if (gloomy) { const cl = part === 'day' || part === 'dawn' ? '#e6ebef' : '#5a6478'; p.r(5, 6, 16, 4, cl); p.r(8, 4, 9, 2, cl); p.r(w - 24, 9, 18, 4, cl); p.r(w - 20, 7, 10, 2, cl); }
+    if (moon) { p.rows([[5, w - 17, w - 9], [6, w - 18, w - 8], [7, w - 19, w - 7], [8, w - 19, w - 7], [9, w - 19, w - 7], [10, w - 19, w - 7], [11, w - 18, w - 8], [12, w - 17, w - 9]], '#fff3b8'); p.r(w - 15, 8, 2, 2, '#f2dc8a'); }
+    if (!gloomy && !moon && part === 'day') { p.r(w - 15, 6, 6, 6, '#fff1b8'); p.r(w - 14, 5, 4, 8, '#fff1b8'); }
     if (part === 'dawn') { p.rows([[h - 9, 10, 17], [h - 10, 11, 16], [h - 11, 12, 15]], '#ffd9a0'); }
     if (part === 'dusk') { p.rows([[h - 12, 22, 29], [h - 13, 21, 30], [h - 14, 22, 29], [h - 15, 23, 28]], '#ffcf7a'); p.r(3, h - 10, w - 6, 3, '#e07a5f'); }
-    if (part === 'night' || part === 'midnight') {
+    if (!gloomy && !moon && (part === 'night' || part === 'midnight')) {
       for (const [x, y] of [[8, 8], [16, 14], [26, 7], [36, 12], [12, 22], [40, 24], [30, 20], [20, 28]] as [number, number][]) if (x < w - 4 && y < h - 4) p.p(x, y, part === 'night' ? '#fff6c8' : '#cfd8ff');
       p.rows([[6, w - 14, w - 11], [7, w - 15, w - 12], [8, w - 15, w - 12], [9, w - 15, w - 12], [10, w - 14, w - 11]], '#fff1b8');
       p.rows([[7, w - 12, w - 11], [8, w - 12, w - 11], [9, w - 12, w - 11]], top);
@@ -440,7 +448,14 @@ export function windowURL(part: DayPart, w = 52, h = 44): string {
     // city silhouette
     p.r(3, h - 8, 8, 5, shade(bottom, -0.35)); p.r(12, h - 11, 6, 8, shade(bottom, -0.3)); p.r(19, h - 7, 10, 4, shade(bottom, -0.4)); p.r(30, h - 12, 7, 9, shade(bottom, -0.3)); p.r(38, h - 9, w - 41, 6, shade(bottom, -0.38));
     if (part === 'night' || part === 'midnight' || part === 'dusk') for (const [x, y] of [[14, h - 9], [32, h - 10], [34, h - 7], [5, h - 6]] as [number, number][]) p.p(x, y, '#ffe08a');
+    // weather outside
+    const f = frame % 2;
+    if (weather === 'rain') for (let i = 0; i < 26; i++) { const x = 4 + ((i * 17 + f * 5) % (w - 9)), y = 4 + ((i * 11 + f * 6) % (h - 12)); p.r(x, y, 1, 3, '#d6e6f2'); }
+    if (weather === 'snow') for (let i = 0; i < 24; i++) { const x = 4 + ((i * 19 + f * 2) % (w - 8)), y = 4 + ((i * 13 + f * 3) % (h - 9)); p.p(x, y, '#ffffff'); if (i % 3 === 0) p.p(x + 1, y, '#ffffff'); }
+    if (weather === 'snow') p.r(3, h - 5, w - 6, 2, '#ffffff');
+    if (weather === 'wind') for (let i = 0; i < 5; i++) { const x = 6 + ((i * 13 + f * 7) % (w - 14)), y = 8 + ((i * 9 + f * 4) % (h - 18)); p.r(x, y, 2, 1, i % 2 ? '#e8a25a' : '#9cb58f'); p.p(x + 2, y + 1, i % 2 ? '#c47f3c' : '#6d8765'); p.r(x - 6, y + 2, 5, 1, 'rgba(255,255,255,0.7)'); }
     p.r(Math.floor(w / 2) - 1, 3, 2, h - 6, '#f3e7d2'); p.r(3, Math.floor(h / 2) - 1, w - 6, 2, '#f3e7d2');
+    if (weather === 'rain') { p.p(10, Math.floor(h / 2) + 1, '#d6e6f2'); p.p(w - 12, Math.floor(h / 2) + 1, '#d6e6f2'); }
     p.r(0, h - 3, w, 3, '#d6c4a2');
   });
 }

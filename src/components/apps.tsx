@@ -17,6 +17,7 @@ import { toast } from '../lib/bus';
 import { checkAchievements } from '../services/reading';
 import type { DiaryEntry, DiaryTemplate, Mood } from '../db/types';
 import { DiaryBook, type BookPage } from './DiaryBook';
+import { unlockedTopics } from '../services/progress';
 
 // ───────── 日記 ─────────
 export function DiaryApp({ startId, compact }: { startId?: string; compact?: boolean }) {
@@ -118,6 +119,7 @@ export function ChatApp({ onCall, embedded }: { onCall?: () => void; embedded?: 
   useBus<boolean>('typing', setTyping);
   useEffect(() => { markRead(); end.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, typing]);
   const lastPartner = [...msgs].reverse().find((m) => m.sender === 'partner');
+  const unlockedT = useLive(unlockedTopics, [], []) ?? [];
   const invite = () => run(async () => { markArrival(); await startVisit(); for (const a of await checkAchievements()) toast(`🏆 解鎖成就「${a.name}」+${a.reward}`, 'coin'); navigate('/room'); }, '陳卷毛出發了！');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: embedded ? 0 : 420 }} data-testid="chat-app">
@@ -138,7 +140,7 @@ export function ChatApp({ onCall, embedded }: { onCall?: () => void; embedded?: 
       </div>
       {typing && <div className="typing">陳卷毛正在輸入…</div>}
       <div className="options" role="group" aria-label="對話選項">
-        {CHAT_TOPICS.map((t) => <button key={t.id} disabled={busy || typing} onClick={() => run(() => sendTopic(t.id))} data-testid={`topic-${t.id}`}>{t.prompt}</button>)}
+        {CHAT_TOPICS.filter((t) => !t.locked || unlockedT.includes(t.id)).map((t) => <button key={t.id} className={t.locked ? 'new-topic' : ''} disabled={busy || typing} onClick={() => run(() => sendTopic(t.id))} data-testid={`topic-${t.id}`}>{t.locked ? '💞 ' : ''}{t.prompt}</button>)}
       </div>
       <div className="row" style={{ padding: '6px 10px 10px', background: 'var(--cream)', gap: 6 }}>
         {onCall && <button className="btn small" onClick={onCall} data-testid="start-call">📞 打電話</button>}

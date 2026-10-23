@@ -10,6 +10,7 @@ import { plantById } from '../data/catalog';
 import { plantStatus } from '../services/life';
 import { ACHIEVEMENTS } from '../data/achievements';
 import { MoodThermometer } from '../components/MoodThermometer';
+import { LongDistanceCard, QuestsCard, WorldStrip } from '../components/HomeCards';
 
 const GREET: Record<string, string> = { dawn: '早安，今天也慢慢來', day: '午安，給自己一點閱讀時間', dusk: '傍晚了，窗外的光好溫柔', night: '晚上好，開一盞桌燈吧', midnight: '夜深了，記得早點休息' };
 
@@ -44,7 +45,10 @@ export default function HomePage() {
         </div>
       </div>
 
+      <WorldStrip />
       <MoodThermometer />
+      <LongDistanceCard />
+      <QuestsCard />
 
       {together != null && together > 0 && (
         <div className="card flat" style={{ background: '#fde9ea' }}>
