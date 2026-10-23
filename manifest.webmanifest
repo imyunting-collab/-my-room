@@ -1,0 +1,17 @@
+{
+  "name": "MY ROOM｜我的像素生活",
+  "short_name": "MY ROOM",
+  "description": "把喜歡的生活，一點一點住進來。閱讀養成 × 像素生活 × 房間裝潢 × 戀愛互動。",
+  "lang": "zh-Hant-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F0E5",
+  "theme_color": "#795B43",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
