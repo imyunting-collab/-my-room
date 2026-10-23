@@ -1,10 +1,10 @@
 // Shop, room layout, wardrobe, fridge, balcony plants.
 import { db } from '../db/idb';
-import type { CharacterId, Equip, OwnedPlant, RoomId, Slot } from '../db/types';
+import type { CharacterId, Equip, OwnedPlant, RoomId, SceneRoom, Slot } from '../db/types';
 import { BALCONY_SLOTS, clothById, deviceById, foodById, furnById, plantById, type PlantDef, type Unlock } from '../data/catalog';
 import { achievementById } from '../data/achievements';
-import { clamp, uuid } from '../lib/util';
-import { GameError, txSpend } from './wallet';
+import { clamp, dateKey, uuid } from '../lib/util';
+import { GameError, txGrant, txSpend } from './wallet';
 
 // ───────── unlock conditions ─────────
 export interface UnlockCtx { achievements: Set<string>; books: number; pages: number }
@@ -93,7 +93,12 @@ export async function buyPlant(defId: string): Promise<OwnedPlant> {
 export const ROOM_W = 192, ROOM_H = 240, FLOOR_Y = 118;
 
 /** Clamp a furniture anchor (bottom-centre) to where that kind of piece is allowed to stand. */
-export function furniturePos(def: { w: number; h: number; placement: string }, x: number, y: number) {
+export const BALCONY_W = 192, BALCONY_H = 168, BALCONY_FLOOR = 72;
+export function furniturePos(def: { w: number; h: number; placement: string }, x: number, y: number, roomId?: RoomId | null) {
+  if (roomId === 'balcony') {
+    // everything stands on the balcony floor (no walls out there)
+    return { x: Math.round(clamp(x, def.w / 2 + 2, BALCONY_W - def.w / 2 - 2)), y: Math.round(clamp(y, BALCONY_FLOOR + 8, BALCONY_H - 4)) };
+  }
   const minY = def.placement === 'wall' ? def.h + 6 : def.placement === 'surface' ? 40 : FLOOR_Y + 12;
   const maxY = def.placement === 'wall' ? FLOOR_Y - 2 : ROOM_H - 6;
   return { x: Math.round(clamp(x, def.w / 2 + 2, ROOM_W - def.w / 2 - 2)), y: Math.round(clamp(y, minY, maxY)) };
@@ -107,7 +112,7 @@ export async function placeFurniture(id: string, roomId: RoomId, x: number, y: n
     const f = await t.store('ownedFurniture').get(id);
     if (!f) throw new GameError('找不到家具');
     const def = furnById.get(f.defId)!;
-    await t.store('ownedFurniture').put({ ...f, roomId, ...furniturePos(def, x, y) });
+    await t.store('ownedFurniture').put({ ...f, roomId, ...furniturePos(def, x, y, roomId) });
   });
 }
 export async function toggleFlip(kind: 'furn' | 'dev', id: string) {
@@ -121,14 +126,14 @@ export async function toggleFlip(kind: 'furn' | 'dev', id: string) {
 // The window is part of the room, not a piece of furniture, so its layout lives in meta.
 export interface WindowLayout { x: number; y: number; flip: boolean }
 export const WINDOW_W = 52, WINDOW_H = 44;
-export const DEFAULT_WINDOW: Record<RoomId, WindowLayout> = { bedroom: { x: 54, y: 66, flip: false }, study: { x: 76, y: 62, flip: false } };
+export const DEFAULT_WINDOW: Record<SceneRoom, WindowLayout> = { bedroom: { x: 54, y: 66, flip: false }, study: { x: 76, y: 62, flip: false }, kitchen: { x: 150, y: 62, flip: false } };
 export function windowPos(x: number, y: number) {
   return { x: Math.round(clamp(x, WINDOW_W / 2 + 2, ROOM_W - WINDOW_W / 2 - 2)), y: Math.round(clamp(y, WINDOW_H + 4, FLOOR_Y - 4)) };
 }
-export async function getWindowLayout(room: RoomId): Promise<WindowLayout> {
+export async function getWindowLayout(room: SceneRoom): Promise<WindowLayout> {
   return { ...DEFAULT_WINDOW[room], ...(await db.getKV<Partial<WindowLayout> | null>('meta', `window:${room}`, null) ?? {}) };
 }
-export async function setWindowLayout(room: RoomId, patch: Partial<WindowLayout> | null) {
+export async function setWindowLayout(room: SceneRoom, patch: Partial<WindowLayout> | null) {
   if (patch === null) return db.setKV('meta', `window:${room}`, null);
   const cur = await getWindowLayout(room);
   const next = { ...cur, ...patch };
@@ -184,6 +189,44 @@ export async function applyOutfit(id: string) {
     for (const v of Object.values(o.equip)) if (v && !(await t.store('ownedClothing').byIndex('defId', v)).length) throw new GameError('這套穿搭裡有還沒擁有的單品');
     await t.store('meta').put({ key: `equip:${o.character}`, value: o.equip });
   });
+}
+
+// ───────── interactive furniture (咖啡機、烤麵包機…) ─────────
+export interface ActResult { coins: number; food?: string; capped?: 'coin' | 'food'; watered?: number }
+/** Pays the piece's real reward (coins / food into the fridge), capped per day. */
+export async function useFurnitureAct(defId: string): Promise<ActResult> {
+  const def = furnById.get(defId);
+  const act = def?.act;
+  if (!def || !act) throw new GameError('這件家具不能互動');
+  const day = dateKey();
+  const res: ActResult = { coins: 0 };
+  await db.tx(['wallet', 'foodInventory', 'meta'], 'readwrite', async (t) => {
+    if (act.coin) {
+      const key = `act:${defId}:${day}`;
+      const used = Number((await t.store('meta').get(key))?.value ?? 0);
+      if (used < (act.coinPerDay ?? 99)) {
+        await txGrant(t, `${key}:${used}`, act.coin, `${def.name}・${act.verb}`, { type: 'day', id: day });
+        await t.store('meta').put({ key, value: used + 1 });
+        res.coins = act.coin;
+      } else res.capped = 'coin';
+    }
+    if (act.food) {
+      const key = `actFood:${defId}:${day}`;
+      const used = Number((await t.store('meta').get(key))?.value ?? 0);
+      if (used < (act.foodPerDay ?? 1)) {
+        const inv = await t.store('foodInventory').get(act.food);
+        await t.store('foodInventory').put({ foodId: act.food, quantity: (inv?.quantity ?? 0) + 1, updatedAt: Date.now() });
+        await t.store('meta').put({ key, value: used + 1 });
+        res.food = act.food;
+      } else res.capped = 'food';
+    }
+  });
+  if (act.waterAll) {
+    let n = 0;
+    for (const p of await db.all('ownedPlants')) if (p.slot != null && (await waterPlant(p.id)) === 'watered') n++;
+    res.watered = n;
+  }
+  return res;
 }
 
 // ───────── fridge ─────────

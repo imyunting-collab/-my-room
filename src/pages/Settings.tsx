@@ -6,6 +6,7 @@ import { ensureSeed } from '../services/seed';
 import { confirmDialog, Field, Icon, Sheet, useAction } from '../ui';
 import { DAYPART_LABEL, DEFAULT_DAYPARTS, dateKey, downloadText, type DayPart, type DayPartRanges } from '../lib/util';
 import { toast } from '../lib/bus';
+import { SoundSettings } from '../components/SoundSettings';
 
 export default function SettingsPage() {
   const { busy, run } = useAction();
@@ -32,6 +33,7 @@ export default function SettingsPage() {
 
   return (
     <div>
+      <SoundSettings />
       <div className="card">
         <h2><Icon name="backup" />資料備份與還原</h2>
         <p className="small">所有書籍、日記、照片、聊天與戀愛紀錄都只存在<b>這台裝置的瀏覽器</b>裡，不會上傳到任何伺服器。本機保存不等於自動同步：換手機或清除瀏覽器資料前，請先匯出備份。</p>

@@ -353,3 +353,44 @@ a { color: var(--wood); }
 .scene .obj.flipped { transform: translate(-50%, -100%) scaleX(-1); }
 .scene .music-note { position: absolute; pointer-events: none; z-index: 8800; font-size: 18px; font-weight: 900; color: #c96f4a; text-shadow: 0 0 2px #fffaf1, 0 0 2px #fffaf1; animation: noteFloat 2.4s ease-out forwards; }
 @keyframes noteFloat { 0% { transform: translate(-50%, 0) rotate(-8deg); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(calc(-50% + 14px), -46px) rotate(10deg); opacity: 0; } }
+
+/* interactive furniture */
+.scene .obj.wiggle { animation: wiggle 0.6s ease-in-out; }
+.scene .obj.flipped.wiggle { animation: wiggleF 0.6s ease-in-out; }
+@keyframes wiggle { 0%, 100% { transform: translate(-50%, -100%) scale(1, 1); } 25% { transform: translate(-50%, -100%) scale(1.12, 0.86); } 55% { transform: translate(-50%, -100%) scale(0.92, 1.1); } 80% { transform: translate(-50%, -100%) scale(1.04, 0.97); } }
+@keyframes wiggleF { 0%, 100% { transform: translate(-50%, -100%) scale(-1, 1); } 25% { transform: translate(-50%, -100%) scale(-1.12, 0.86); } 55% { transform: translate(-50%, -100%) scale(-0.92, 1.1); } 80% { transform: translate(-50%, -100%) scale(-1.04, 0.97); } }
+.scene .glow.pink { background: radial-gradient(circle, rgba(255, 120, 180, 0.5), rgba(255, 120, 180, 0) 70%); }
+.scene .star-sky { position: absolute; left: 0; right: 0; top: 0; pointer-events: none; z-index: 2950; mix-blend-mode: screen;
+  background: radial-gradient(1.2px 1.2px at 12% 18%, #fff 99%, transparent), radial-gradient(1.5px 1.5px at 30% 40%, #fff6c8 99%, transparent), radial-gradient(1px 1px at 46% 12%, #fff 99%, transparent),
+    radial-gradient(1.6px 1.6px at 62% 30%, #ffe0f0 99%, transparent), radial-gradient(1px 1px at 78% 16%, #fff 99%, transparent), radial-gradient(1.4px 1.4px at 88% 44%, #fff6c8 99%, transparent),
+    radial-gradient(1px 1px at 20% 62%, #fff 99%, transparent), radial-gradient(1.3px 1.3px at 54% 58%, #d6f4ff 99%, transparent), radial-gradient(1px 1px at 72% 70%, #fff 99%, transparent),
+    linear-gradient(rgba(40, 50, 110, 0.45), rgba(80, 60, 140, 0.25)); animation: twinkle 2.4s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity: 0.75; } to { opacity: 1; } }
+.scene .photo-flash { position: absolute; inset: 0; background: #fff; z-index: 9500; pointer-events: none; animation: fade 0.26s ease-out reverse; }
+.love-note { background: #fffaf1; border: 2px dashed var(--pink-dark); border-radius: 10px; padding: 16px 18px; font-size: 17px; line-height: 1.8; color: var(--ink);
+  background-image: repeating-linear-gradient(180deg, transparent 0 29px, rgba(201,141,134,0.25) 29px 30px); }
+.love-note p { margin: 0 0 8px; } .love-note span { display: block; text-align: right; color: var(--ink-soft); font-size: 14px; }
+.options { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); grid-auto-columns: max-content; }
+
+/* 今日心情溫度計 */
+.mood-body { display: flex; gap: 14px; align-items: stretch; }
+.thermo { position: relative; width: 44px; flex-shrink: 0; min-height: 150px; }
+.thermo-tube { position: absolute; left: 12px; top: 0; bottom: 22px; width: 18px; border: 3px solid var(--ink); border-bottom: 0; border-radius: 10px 10px 0 0; background: #fffaf1; overflow: hidden; display: flex; align-items: flex-end; }
+.thermo-fill { width: 100%; transition: height 0.4s ease, background 0.4s; background-image: linear-gradient(90deg, rgba(255,255,255,0.35) 0 4px, transparent 4px); }
+.thermo-bulb { position: absolute; left: 6px; bottom: 0; width: 30px; height: 30px; border: 3px solid var(--ink); border-radius: 50%; transition: background 0.4s; box-shadow: inset 4px 4px 0 rgba(255,255,255,0.35); }
+.thermo-tick { position: absolute; right: -6px; font-size: 9px; color: var(--muted); transform: translateY(50%); }
+.mood-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mood-now { display: flex; align-items: baseline; gap: 6px; min-height: 30px; font-size: 14px; }
+.mood-now b { font-size: 26px; }
+.mood-emoji { font-size: 24px; }
+.mood-right input[type=range] { width: 100%; accent-color: var(--pink-dark); }
+.mood-steps { display: flex; flex-wrap: wrap; gap: 4px; }
+.mood-steps .chip { padding: 4px 8px; min-height: 32px; font-size: 12px; gap: 3px; display: inline-flex; align-items: center; }
+.mood-week { display: flex; gap: 6px; align-items: flex-end; height: 50px; padding-top: 4px; border-top: 2px dashed var(--cream-2); }
+.mood-week > div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; height: 100%; }
+.mood-week i { display: block; width: 100%; max-width: 18px; border: 2px solid var(--ink); border-radius: 3px; }
+.mood-week span { font-size: 10px; color: var(--muted); }
+.sound-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sound-row input[type=range] { flex: 1; accent-color: var(--forest); }
+.switch { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; min-width: 96px; cursor: pointer; }
+.switch input { width: 20px; height: 20px; accent-color: var(--forest); }

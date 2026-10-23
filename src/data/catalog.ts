@@ -8,11 +8,13 @@ export const STYLE_LABEL: Record<FurnStyle, string> = {
 
 export type FurnCategory =
   | 'desk' | 'chair' | 'bed' | 'clock' | 'bookshelf' | 'fridge' | 'wardrobe' | 'lamp' | 'rug' | 'curtain'
-  | 'plantShelf' | 'deco' | 'sofa' | 'table' | 'projector' | 'photoWall' | 'mug' | 'pillow' | 'readingLamp' | 'cabinet' | 'recordPlayer';
+  | 'plantShelf' | 'deco' | 'sofa' | 'table' | 'projector' | 'photoWall' | 'mug' | 'pillow' | 'readingLamp' | 'cabinet' | 'recordPlayer'
+  | 'cute' | 'kitchenware' | 'garden' | 'counter' | 'sink';
 export const FURN_CAT_LABEL: Record<FurnCategory, string> = {
   desk: '書桌', chair: '椅子', bed: '床', clock: '時鐘', bookshelf: '書櫃', fridge: '冰箱', wardrobe: '衣櫃', lamp: '桌燈',
   rug: '地毯', curtain: '窗簾', plantShelf: '植物架', deco: '裝飾品', sofa: '沙發', table: '餐桌', projector: '投影機',
   photoWall: '照片牆', mug: '馬克杯', pillow: '抱枕', readingLamp: '閱讀燈', cabinet: '櫃子', recordPlayer: '唱片機',
+  cute: '可愛小物', kitchenware: '廚房小物', garden: '陽台小物', counter: '流理臺', sink: '洗手台',
 };
 
 export type Unlock =
@@ -29,11 +31,37 @@ export interface FurnitureDef {
   placement: 'floor' | 'wall' | 'surface';
   w: number; // sprite logical size
   h: number;
-  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf' | 'music';
+  interaction: 'sit' | 'sleep' | 'shelf' | 'fridge' | 'wardrobe' | 'lamp' | 'clock' | 'desk' | 'deco' | 'sofa' | 'table' | 'projector' | 'plantShelf' | 'music' | 'act';
   love?: boolean;
   unlock?: Unlock;
   starter?: { room: RoomId; x: number; y: number };
   desc?: string;
+  /** what this piece does when you tap it (interaction: 'act') */
+  act?: FurnAct;
+  /** which shop shelf it belongs to */
+  area?: 'room' | 'kitchen' | 'balcony' | 'love';
+}
+
+export type ActFx = 'hearts' | 'notes' | 'drops' | 'sparkles' | 'bubbles' | 'steam' | 'stars' | 'flash' | 'zzz';
+export type SfxName = 'tap' | 'coin' | 'pop' | 'squeak' | 'brew' | 'water' | 'ding' | 'chime' | 'meow' | 'woof' | 'bubble' | 'clink' | 'clang'
+  | 'sizzle' | 'whirr' | 'tweet' | 'twinkle' | 'shutter' | 'paper' | 'gacha' | 'kiss' | 'hug' | 'message' | 'door' | 'page' | 'switch' | 'boil' | 'sparkle';
+export interface FurnAct {
+  verb: string;              // menu / button label
+  lines: string[];           // what 99 says
+  chen?: string[];           // what 陳卷毛 says if he is visiting
+  fx?: ActFx;
+  sfx?: SfxName;
+  pose?: 'stand' | 'sit' | 'takeFood' | 'water' | 'read' | 'phone' | 'wave' | 'eat' | 'work';
+  wiggle?: boolean;          // the item squishes
+  toggle?: boolean;          // on/off (lights) — sprite gets { on }
+  sit?: boolean;             // 99 sits on it
+  coin?: number; coinPerDay?: number;   // real reward
+  food?: string; foodPerDay?: number;   // puts food in the fridge
+  memory?: boolean;          // saves a game memory (拍立得)
+  waterAll?: boolean;        // waters every balcony plant
+  note?: boolean;            // reads a love note from 陳卷毛
+  gacha?: boolean;           // random sweet line
+  ms?: number;
 }
 
 const F = (d: FurnitureDef) => d;
@@ -46,7 +74,14 @@ export const FURNITURE: FurnitureDef[] = [
   F({ id: 'clock_retro', name: '復古掛鐘', category: 'clock', style: 'wood', price: 0, placement: 'wall', w: 18, h: 18, interaction: 'clock', starter: { room: 'study', x: 160, y: 40 } }),
   F({ id: 'bed_wood', name: '原木單人床', category: 'bed', style: 'wood', price: 0, placement: 'floor', w: 64, h: 36, interaction: 'sleep', starter: { room: 'bedroom', x: 48, y: 170 } }),
   F({ id: 'wardrobe_wood', name: '原木衣櫃', category: 'wardrobe', style: 'wood', price: 0, placement: 'floor', w: 36, h: 60, interaction: 'wardrobe', starter: { room: 'bedroom', x: 106, y: 134 } }),
-  F({ id: 'fridge_cream', name: '奶油小冰箱', category: 'fridge', style: 'cream', price: 0, placement: 'floor', w: 26, h: 46, interaction: 'fridge', starter: { room: 'bedroom', x: 144, y: 136 } }),
+  F({ id: 'fridge_cream', name: '奶油小冰箱', category: 'fridge', style: 'cream', price: 0, placement: 'floor', w: 26, h: 46, interaction: 'fridge', starter: { room: 'kitchen', x: 170, y: 140 } }),
+  // kitchen basics (seeded by seed:kitchen)
+  F({ id: 'counter_wood', name: '原木流理臺', category: 'counter', style: 'wood', price: 80, placement: 'floor', w: 58, h: 34, interaction: 'act', area: 'kitchen', starter: { room: 'kitchen', x: 46, y: 140 },
+    act: { verb: '做料理', lines: ['煎個荷包蛋～', '今天自己煮！', '切切切，好香'], chen: ['我來幫妳洗菜！', '好香喔，可以偷吃一口嗎？'], fx: 'steam', sfx: 'sizzle', pose: 'work', ms: 1600 } }),
+  F({ id: 'sink_white', name: '白色洗手台', category: 'sink', style: 'cream', price: 60, placement: 'floor', w: 30, h: 34, interaction: 'act', area: 'kitchen', starter: { room: 'kitchen', x: 104, y: 140 },
+    act: { verb: '洗手', lines: ['洗洗手～', '把碗洗乾淨了！', '水好冰'], chen: ['我洗碗，妳休息。'], fx: 'drops', sfx: 'water', pose: 'water', ms: 1400 } }),
+  F({ id: 'table_kitchen', name: '原木餐桌', category: 'table', style: 'wood', price: 70, placement: 'floor', w: 44, h: 26, interaction: 'table', area: 'kitchen', starter: { room: 'kitchen', x: 96, y: 196 } }),
+  F({ id: 'chair_kitchen', name: '原木餐椅', category: 'chair', style: 'wood', price: 30, placement: 'floor', w: 18, h: 28, interaction: 'sit', area: 'kitchen', starter: { room: 'kitchen', x: 64, y: 204 } }),
   F({ id: 'rug_cream', name: '圓形編織地毯', category: 'rug', style: 'cream', price: 0, placement: 'floor', w: 60, h: 16, interaction: 'deco', starter: { room: 'bedroom', x: 112, y: 205 } }),
   F({ id: 'curtain_cream', name: '奶油色窗簾', category: 'curtain', style: 'cream', price: 0, placement: 'wall', w: 56, h: 52, interaction: 'deco', starter: { room: 'bedroom', x: 54, y: 72 } }),
 
@@ -80,6 +115,70 @@ export const FURNITURE: FurnitureDef[] = [
   F({ id: 'cabinet_cream', name: '奶油白矮櫃', category: 'cabinet', style: 'cream', price: 55, placement: 'floor', w: 40, h: 26, interaction: 'deco' }),
   F({ id: 'deco_record', name: '黑膠唱盤', category: 'deco', style: 'dark', price: 70, placement: 'surface', w: 18, h: 10, interaction: 'deco', unlock: { kind: 'achievement', id: 'pages2000' } }),
 
+  // ── 房間小物（area: room）──
+  F({ id: 'plush_bear', name: '熊熊娃娃', category: 'cute', style: 'wood', price: 35, placement: 'floor', w: 18, h: 20, interaction: 'act', area: 'room',
+    act: { verb: '抱抱熊熊', lines: ['熊熊軟綿綿～', '熊熊今天也很乖', '抱緊緊！'], chen: ['妳抱熊熊的時候好可愛。', '那我呢？我也要抱。'], fx: 'hearts', sfx: 'squeak', wiggle: true } }),
+  F({ id: 'plush_dog', name: '狗狗娃娃', category: 'cute', style: 'cream', price: 35, placement: 'floor', w: 20, h: 16, interaction: 'act', area: 'room',
+    act: { verb: '摸摸狗狗', lines: ['汪！（幫狗狗配音）', '狗狗陪我看書', '耳朵好軟'], chen: ['牠長得有點像我欸？', '汪。（他也配音了）'], fx: 'hearts', sfx: 'woof', wiggle: true } }),
+  F({ id: 'rug_cloud', name: '雲朵地毯', category: 'rug', style: 'cream', price: 40, placement: 'floor', w: 56, h: 16, interaction: 'act', area: 'room',
+    act: { verb: '躺一下', lines: ['躺在雲上的感覺～', '好軟，不想起來'], fx: 'zzz', sfx: 'pop', sit: true } }),
+  F({ id: 'rug_strawberry', name: '草莓地毯', category: 'rug', style: 'candy', price: 40, placement: 'floor', w: 40, h: 18, interaction: 'act', area: 'room',
+    act: { verb: '坐坐', lines: ['坐在草莓上！', '甜甜的地毯'], fx: 'sparkles', sfx: 'pop', sit: true } }),
+  F({ id: 'beanbag', name: '懶骨頭', category: 'cute', style: 'forest', price: 55, placement: 'floor', w: 30, h: 22, interaction: 'act', area: 'room',
+    act: { verb: '陷進去', lines: ['陷進去了…起不來', '這裡最適合看書'], chen: ['我也要擠進去！'], fx: 'zzz', sfx: 'pop', sit: true, wiggle: true } }),
+  F({ id: 'lamp_star', name: '星星落地燈', category: 'lamp', style: 'candy', price: 50, placement: 'floor', w: 14, h: 44, interaction: 'lamp', area: 'room' }),
+  F({ id: 'lamp_lava', name: '熔岩燈', category: 'lamp', style: 'candy', price: 40, placement: 'surface', w: 10, h: 20, interaction: 'lamp', area: 'room' }),
+  F({ id: 'musicbox', name: '旋轉木馬音樂盒', category: 'cute', style: 'candy', price: 45, placement: 'surface', w: 16, h: 18, interaction: 'act', area: 'room',
+    act: { verb: '轉發條', lines: ['叮叮咚咚～', '木馬在轉圈圈'], chen: ['這首好好聽。'], fx: 'notes', sfx: 'chime', ms: 2200 } }),
+  F({ id: 'catbed', name: '貓咪睡窩', category: 'cute', style: 'wood', price: 60, placement: 'floor', w: 26, h: 16, interaction: 'act', area: 'room', desc: '裡面住著一隻橘貓。',
+    act: { verb: '摸摸貓咪', lines: ['小貓呼嚕呼嚕～', '摸摸頭', '牠翻肚子了！'], chen: ['牠比較喜歡妳欸。', '貓咪在看我…我是不是該讓位。'], fx: 'hearts', sfx: 'meow', wiggle: true } }),
+  F({ id: 'fishbowl', name: '金魚缸', category: 'cute', style: 'cream', price: 40, placement: 'surface', w: 16, h: 16, interaction: 'act', area: 'room',
+    act: { verb: '餵金魚', lines: ['金魚游過來吃飼料了', '小紅今天也很有精神'], fx: 'bubbles', sfx: 'bubble' } }),
+
+  // ── 廚房小物（area: kitchen）──
+  F({ id: 'coffee_machine', name: '咖啡機', category: 'kitchenware', style: 'dark', price: 60, placement: 'surface', w: 14, h: 18, interaction: 'act', area: 'kitchen', desc: '真的會泡咖啡：每杯 +1 知識幣（每天 5 杯）。',
+    act: { verb: '泡咖啡', lines: ['咖啡好香～', '今天也靠咖啡續命', '拉花失敗，但很好喝'], chen: ['幫我也泡一杯？要加很多牛奶。'], fx: 'steam', sfx: 'brew', pose: 'takeFood', coin: 1, coinPerDay: 5, ms: 1800 } }),
+  F({ id: 'toaster', name: '烤麵包機', category: 'kitchenware', style: 'cream', price: 40, placement: 'surface', w: 16, h: 12, interaction: 'act', area: 'kitchen', desc: '每天可以烤 2 份奶油麵包放進冰箱。',
+    act: { verb: '烤麵包', lines: ['烤好了！放進冰箱～', '叮！麵包跳起來了'], fx: 'steam', sfx: 'ding', food: 'bread', foodPerDay: 2, ms: 1500 } }),
+  F({ id: 'rice_cooker', name: '電鍋', category: 'kitchenware', style: 'cream', price: 45, placement: 'surface', w: 16, h: 16, interaction: 'act', area: 'kitchen', desc: '每天可以煮 2 份飯糰。',
+    act: { verb: '煮飯', lines: ['飯煮好了，捏成飯糰！', '電鍋跳起來的聲音最療癒'], fx: 'steam', sfx: 'ding', food: 'onigiri', foodPerDay: 2, ms: 1600 } }),
+  F({ id: 'kettle', name: '熱水壺', category: 'kitchenware', style: 'forest', price: 30, placement: 'surface', w: 12, h: 14, interaction: 'act', area: 'kitchen',
+    act: { verb: '泡茶', lines: ['泡一杯熱茶', '暖暖的'], chen: ['我也要一杯，謝謝老闆。'], fx: 'steam', sfx: 'boil', pose: 'takeFood', ms: 1600 } }),
+  F({ id: 'waffle_maker', name: '鬆餅機', category: 'kitchenware', style: 'candy', price: 50, placement: 'surface', w: 16, h: 10, interaction: 'act', area: 'kitchen', desc: '每天可以做 1 份格子鬆餅。',
+    act: { verb: '做鬆餅', lines: ['格子鬆餅完成！', '淋上蜂蜜～'], chen: ['好香！我可以先吃一格嗎？'], fx: 'steam', sfx: 'sizzle', food: 'waffle', foodPerDay: 1, ms: 1600 } }),
+  F({ id: 'fruit_basket', name: '水果籃', category: 'kitchenware', style: 'wood', price: 35, placement: 'surface', w: 18, h: 10, interaction: 'act', area: 'kitchen', desc: '每天可以裝 1 盒水果。',
+    act: { verb: '切水果', lines: ['切了一盒水果放冰箱', '草莓好甜'], fx: 'sparkles', sfx: 'pop', food: 'fruit', foodPerDay: 1 } }),
+  F({ id: 'spice_rack', name: '調味罐架', category: 'kitchenware', style: 'wood', price: 25, placement: 'wall', w: 26, h: 14, interaction: 'act', area: 'kitchen',
+    act: { verb: '整理', lines: ['鹽、胡椒、還有一點點愛心', '排整齊了！'], fx: 'sparkles', sfx: 'clink', wiggle: true } }),
+  F({ id: 'pan_rack', name: '掛鍋架', category: 'kitchenware', style: 'dark', price: 30, placement: 'wall', w: 30, h: 18, interaction: 'act', area: 'kitchen',
+    act: { verb: '敲一下', lines: ['鏘～', '今天要用哪一支鍋子呢'], fx: 'stars', sfx: 'clang', wiggle: true } }),
+  F({ id: 'herb_pot', name: '香草盆栽', category: 'kitchenware', style: 'forest', price: 25, placement: 'surface', w: 12, h: 16, interaction: 'act', area: 'kitchen',
+    act: { verb: '澆水', lines: ['羅勒長好多', '摘一片放義大利麵'], fx: 'drops', sfx: 'water', pose: 'water' } }),
+  F({ id: 'stand_mixer', name: '攪拌機', category: 'kitchenware', style: 'candy', price: 55, placement: 'surface', w: 14, h: 18, interaction: 'act', area: 'kitchen', desc: '每天可以做 1 份焦糖布丁。',
+    act: { verb: '做甜點', lines: ['做了布丁！', '嗡嗡嗡～打發成功'], chen: ['我負責試吃。'], fx: 'sparkles', sfx: 'whirr', food: 'pudding', foodPerDay: 1, ms: 1700 } }),
+
+  // ── 陽台小物（area: balcony）──
+  F({ id: 'pot_tulip', name: '鬱金香花盆', category: 'garden', style: 'candy', price: 25, placement: 'floor', w: 12, h: 20, interaction: 'act', area: 'balcony',
+    act: { verb: '澆花', lines: ['鬱金香開得好漂亮', '粉紅色的最可愛'], fx: 'drops', sfx: 'water', pose: 'water', wiggle: true } }),
+  F({ id: 'pot_sunflower', name: '向日葵花盆', category: 'garden', style: 'wood', price: 30, placement: 'floor', w: 16, h: 28, interaction: 'act', area: 'balcony',
+    act: { verb: '澆花', lines: ['向日葵在對我笑', '要一直向著光喔'], fx: 'drops', sfx: 'water', pose: 'water', wiggle: true } }),
+  F({ id: 'watering_can', name: '小熊澆水壺', category: 'garden', style: 'forest', price: 35, placement: 'floor', w: 16, h: 12, interaction: 'act', area: 'balcony', desc: '一次幫陽台所有植物澆水。',
+    act: { verb: '幫大家澆水', lines: ['大家都喝飽水了！', '今天也要好好長大喔'], fx: 'drops', sfx: 'water', pose: 'water', waterAll: true, ms: 1500 } }),
+  F({ id: 'string_lights', name: '星星燈串架', category: 'garden', style: 'candy', price: 45, placement: 'floor', w: 34, h: 32, interaction: 'act', area: 'balcony',
+    act: { verb: '開燈', lines: ['燈串亮起來了～', '晚上的陽台最浪漫'], fx: 'sparkles', sfx: 'switch', toggle: true } }),
+  F({ id: 'camp_lantern', name: '露營燈', category: 'garden', style: 'forest', price: 30, placement: 'floor', w: 10, h: 16, interaction: 'act', area: 'balcony',
+    act: { verb: '開燈', lines: ['暖暖的光', '像在露營'], fx: 'sparkles', sfx: 'switch', toggle: true } }),
+  F({ id: 'swing_chair', name: '藤編吊椅', category: 'garden', style: 'wood', price: 80, placement: 'floor', w: 28, h: 42, interaction: 'act', area: 'balcony',
+    act: { verb: '坐吊椅', lines: ['晃呀晃～', '吹風好舒服'], fx: 'zzz', sfx: 'pop', sit: true, wiggle: true } }),
+  F({ id: 'bird_feeder', name: '小鳥餵食器', category: 'garden', style: 'wood', price: 35, placement: 'floor', w: 14, h: 30, interaction: 'act', area: 'balcony',
+    act: { verb: '放飼料', lines: ['小鳥來吃早餐了', '啾啾～牠在看我'], fx: 'sparkles', sfx: 'tweet', ms: 1800 } }),
+  F({ id: 'wind_chime', name: '玻璃風鈴', category: 'garden', style: 'cream', price: 25, placement: 'floor', w: 12, h: 26, interaction: 'act', area: 'balcony',
+    act: { verb: '搖一搖', lines: ['叮鈴叮鈴～', '夏天的聲音'], fx: 'sparkles', sfx: 'chime', wiggle: true } }),
+  F({ id: 'garden_bench', name: '木頭長椅', category: 'garden', style: 'wood', price: 50, placement: 'floor', w: 40, h: 20, interaction: 'act', area: 'balcony',
+    act: { verb: '坐一下', lines: ['坐著發呆也很好', '看看天空'], chen: ['坐過來一點。'], fx: 'hearts', sfx: 'pop', sit: true } }),
+  F({ id: 'telescope', name: '小望遠鏡', category: 'garden', style: 'dark', price: 65, placement: 'floor', w: 20, h: 28, interaction: 'act', area: 'balcony',
+    act: { verb: '看天空', lines: ['看到星星了！', '那朵雲好像熊熊', '月亮今天好圓'], chen: ['妳看那顆最亮的，送妳。'], fx: 'stars', sfx: 'twinkle', ms: 1800 } }),
+
   // ── love furniture ──
   F({ id: 'sofa_love', name: '雙人沙發', category: 'sofa', style: 'cafe', price: 120, placement: 'floor', w: 56, h: 30, interaction: 'sofa', love: true }),
   F({ id: 'table_dining', name: '雙人餐桌', category: 'table', style: 'wood', price: 90, placement: 'floor', w: 44, h: 26, interaction: 'table', love: true }),
@@ -88,6 +187,28 @@ export const FURNITURE: FurnitureDef[] = [
   F({ id: 'projector_mini', name: '小型投影機', category: 'projector', style: 'dark', price: 110, placement: 'floor', w: 16, h: 12, interaction: 'projector', love: true }),
   F({ id: 'photowall', name: '紀念照片牆', category: 'photoWall', style: 'wood', price: 60, placement: 'wall', w: 44, h: 26, interaction: 'deco', love: true }),
   F({ id: 'lamp_pair', name: '雙人閱讀燈', category: 'readingLamp', style: 'cream', price: 70, placement: 'floor', w: 14, h: 44, interaction: 'lamp', love: true, unlock: { kind: 'achievement', id: 'readTogether1' } }),
+
+  // ── 愛的小物（area: love）──
+  F({ id: 'polaroid', name: '拍立得相機', category: 'cute', style: 'cream', price: 50, placement: 'surface', w: 14, h: 12, interaction: 'act', area: 'love', love: true, desc: '拍一張，存進戀愛日記。',
+    act: { verb: '拍一張', lines: ['咔嚓！', '拍得好可愛'], chen: ['再一張！這張我眨眼了。'], fx: 'flash', sfx: 'shutter', memory: true } }),
+  F({ id: 'swing_love', name: '雙人鞦韆椅', category: 'cute', style: 'candy', price: 110, placement: 'floor', w: 38, h: 42, interaction: 'act', area: 'love', love: true,
+    act: { verb: '盪鞦韆', lines: ['晃呀晃～', '好像在約會'], chen: ['我推妳！小心喔。'], fx: 'hearts', sfx: 'pop', sit: true, wiggle: true } }),
+  F({ id: 'balloons', name: '愛心氣球束', category: 'cute', style: 'candy', price: 30, placement: 'floor', w: 18, h: 42, interaction: 'act', area: 'love', love: true,
+    act: { verb: '拉拉氣球', lines: ['氣球飄飄～', '好像過生日'], chen: ['送妳的，每一顆都是。'], fx: 'hearts', sfx: 'pop', wiggle: true } }),
+  F({ id: 'lovebox', name: '情書信箱', category: 'cute', style: 'candy', price: 45, placement: 'surface', w: 14, h: 14, interaction: 'act', area: 'love', love: true, desc: '每次打開都有一封陳卷毛的小紙條。',
+    act: { verb: '打開信箱', lines: ['有一封信！'], fx: 'hearts', sfx: 'paper', note: true } }),
+  F({ id: 'rose_vase', name: '玫瑰花瓶', category: 'cute', style: 'cream', price: 35, placement: 'surface', w: 10, h: 20, interaction: 'act', area: 'love', love: true,
+    act: { verb: '聞聞花香', lines: ['好香～', '他送的花還開著'], chen: ['下次再送妳一束。'], fx: 'hearts', sfx: 'sparkle' } }),
+  F({ id: 'star_projector', name: '星空投影燈', category: 'cute', style: 'dark', price: 70, placement: 'surface', w: 14, h: 12, interaction: 'act', area: 'love', love: true,
+    act: { verb: '開星空', lines: ['房間變成星空了～'], chen: ['好像在山上看星星。'], fx: 'stars', sfx: 'twinkle', toggle: true } }),
+  F({ id: 'neon_heart', name: '心形霓虹燈', category: 'cute', style: 'candy', price: 55, placement: 'wall', w: 22, h: 20, interaction: 'act', area: 'love', love: true,
+    act: { verb: '開燈', lines: ['粉紅色的光！'], fx: 'hearts', sfx: 'switch', toggle: true } }),
+  F({ id: 'gacha_love', name: '戀愛扭蛋機', category: 'cute', style: 'candy', price: 65, placement: 'floor', w: 18, h: 32, interaction: 'act', area: 'love', love: true, desc: '轉一顆，看看陳卷毛想說什麼。',
+    act: { verb: '轉扭蛋', lines: ['轉出來了！'], fx: 'sparkles', sfx: 'gacha', gacha: true } }),
+  F({ id: 'bear_pair', name: '情侶熊熊', category: 'cute', style: 'wood', price: 40, placement: 'floor', w: 26, h: 18, interaction: 'act', area: 'love', love: true,
+    act: { verb: '讓熊熊抱抱', lines: ['兩隻熊熊抱在一起～', '像我們一樣'], chen: ['左邊那隻是我。'], fx: 'hearts', sfx: 'squeak', wiggle: true } }),
+  F({ id: 'photo_frame', name: '合照相框', category: 'cute', style: 'wood', price: 30, placement: 'surface', w: 12, h: 14, interaction: 'act', area: 'love', love: true,
+    act: { verb: '看照片', lines: ['那天的夕陽好美', '我們笑得好開心'], chen: ['這張我很帥吧。'], fx: 'hearts', sfx: 'sparkle' } }),
 ];
 
 export type DeviceType = 'computer' | 'tablet' | 'phone';
@@ -199,6 +320,7 @@ export const FOODS: FoodDef[] = [
   { id: 'yogurt', name: '優格', price: 9, desc: '加一點蜂蜜。' },
   { id: 'juice', name: '柳橙汁', price: 9, desc: '早上來一杯。' },
   { id: 'cake', name: '草莓小蛋糕', price: 15, desc: '值得慶祝的日子。' },
+  { id: 'waffle', name: '格子鬆餅', price: 12, desc: '鬆餅機現做，淋蜂蜜。' },
 ];
 
 export interface PlantDef {

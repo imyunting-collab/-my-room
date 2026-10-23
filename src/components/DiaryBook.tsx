@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useReducedMotion } from '../hooks';
 import { usePhoto } from '../ui';
 import { fmtDate } from '../lib/util';
+import { sfx } from '../lib/sound';
 
 export interface BookPage {
   id: string;
@@ -115,6 +116,7 @@ export function DiaryBook({ pages, startId, title, onClose, onEdit, onFavorite }
     if (anim) return;
     const to = idx + dir;
     if (to < 0 || to >= pages.length) return;
+    sfx('page');
     if (reduce) { setI(to); return; }
     setAnim({ from: idx, to, dir });
     setTimeout(() => { setI(to); setAnim(null); }, 520);

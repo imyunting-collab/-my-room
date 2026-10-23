@@ -242,7 +242,7 @@ try {
       await page.waitForSelector('[data-testid=arrange-hint]');
       const box = await page.locator('[data-testid=room-scene]').boundingBox();
       const before = {};
-      for (const cat of ['fridge', 'wardrobe', 'bed']) {
+      for (const cat of ['wardrobe', 'bed']) {
         const el = page.locator(`[data-testid=furn-${cat}]`).first();
         const b = await el.boundingBox();
         before[cat] = b;
@@ -255,13 +255,13 @@ try {
       if (await page.locator('.sheet, [role=dialog]').count()) throw new Error('menu opened on drag');
       if (page.url().includes('/fridge') || page.url().includes('/wardrobe')) throw new Error('navigated instead of drag');
       await page.reload(); await page.waitForTimeout(800);
-      for (const cat of ['fridge', 'wardrobe', 'bed']) {
+      for (const cat of ['wardrobe', 'bed']) {
         const b = await page.locator(`[data-testid=furn-${cat}]`).first().boundingBox();
         if (Math.abs(b.x - before[cat].x) < 10) throw new Error(`${cat} did not move: ${before[cat].x} → ${b.x}`);
       }
       // tap (no drag) in arrange mode opens the menu with 移動/收納
       await page.click('[data-testid=arrange-toggle]');
-      await page.locator('[data-testid=furn-fridge]').first().click();
+      await page.locator('[data-testid=furn-wardrobe]').first().click();
       await page.waitForSelector('button:has-text("收納")');
       await page.keyboard.press('Escape');
       await page.click('[data-testid=arrange-toggle]');
@@ -311,6 +311,122 @@ try {
       await go('/room?scene=study');
       if (!(await page.locator('[data-testid=furn-lamp]').first().getAttribute('class')).includes('flipped')) throw new Error('lamp not flipped');
       if (await page.locator('[data-testid=arrange-hint]').count()) await page.click('[data-testid=arrange-toggle]');
+    });
+    await e2e('廚房：冰箱搬到廚房，預設有流理臺、洗手台、餐桌和兩張椅子', async () => {
+      await go('/room?scene=bedroom');
+      if (await page.locator('[data-testid=furn-fridge]').count()) throw new Error('fridge still in bedroom');
+      await page.click('[data-testid=tab-kitchen]'); await page.waitForTimeout(400);
+      for (const [cat, n] of [['fridge', 1], ['counter', 1], ['sink', 1], ['table', 1], ['chair', 2]]) {
+        const c = await page.locator(`[data-testid=furn-${cat}]`).count();
+        if (c !== n) throw new Error(`${cat}: ${c}`);
+      }
+      // counter & sink really do something
+      await page.locator('[data-testid=furn-sink]').click();
+      await page.waitForSelector('.scene .bubble', { timeout: 6000 });
+    });
+    await e2e('咖啡機泡咖啡 +1 知識幣（每天 5 杯）；烤麵包機把麵包放進冰箱', async () => {
+      await grant(200);
+      await go('/shop?tab=furniture&area=kitchen');
+      for (const id of ['coffee_machine', 'toaster']) { await page.locator(`[data-testid=shop-${id}] [data-testid=buy]`).click(); await page.waitForTimeout(300); }
+      await go('/room?scene=kitchen');
+      const at = async (x, y) => { await page.evaluate(() => scrollTo(0, 0)); const b = await page.locator('[data-testid=room-scene]').boundingBox(); return { x: b.x + x / 192 * b.width, y: b.y + y / 240 * b.height }; };
+      for (const [x, y] of [[30, 108], [60, 108]]) { await page.click('button:has-text("收納箱")'); await page.locator('[data-testid=place-item]').first().click(); await page.waitForTimeout(150); const p = await at(x, y); await page.mouse.click(p.x, p.y); await page.waitForTimeout(400); }
+      const coffee = page.locator('[data-testid=furn-kitchenware][data-defid=coffee_machine]');
+      const before = await coins();
+      for (let i = 0; i < 6; i++) { await coffee.click({ force: true }); await page.waitForTimeout(2900); }
+      const after = await coins();
+      if (after - before !== 5) throw new Error(`coffee coins ${after - before}`);
+      const breadBefore = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const g = r.result.transaction('foodInventory').objectStore('foodInventory').get('bread'); g.onsuccess = () => { res(g.result?.quantity ?? 0); r.result.close(); }; }; }));
+      await page.locator('[data-testid=furn-kitchenware][data-defid=toaster]').click({ force: true }); await page.waitForTimeout(2600);
+      const breadAfter = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const g = r.result.transaction('foodInventory').objectStore('foodInventory').get('bread'); g.onsuccess = () => { res(g.result?.quantity ?? 0); r.result.close(); }; }; }));
+      if (breadAfter - breadBefore !== 1) throw new Error(`bread ${breadBefore} → ${breadAfter}`);
+    });
+    await e2e('寫日記 +5 知識幣；愛的互動 +5 知識幣', async () => {
+      const c0 = await coins();
+      await go('/diary');
+      await page.click('[data-testid=new-diary]');
+      await page.fill('input[name=diary-title]', '拿知識幣的日記');
+      await page.fill('textarea[name=diary-content]', '今天也很好。');
+      await page.click('[data-testid=save-diary]'); await page.waitForTimeout(500);
+      const c1 = await coins();
+      if (c1 - c0 !== 5) throw new Error(`diary coins ${c1 - c0}`);
+      await go('/room?scene=bedroom');
+      await page.click('[data-testid=invite-chen]');
+      await page.waitForSelector('[data-testid=actor-chen]', { timeout: 5000 }); await page.waitForTimeout(2600);
+      const c2 = await coins();
+      await page.click('[data-testid=act-hug]'); await page.waitForTimeout(3500);
+      const c3 = await coins();
+      if (c3 - c2 !== 5) throw new Error(`love coins ${c3 - c2}`);
+      // new interactions
+      await page.click('[data-testid=act-pat]'); await page.waitForFunction(() => document.querySelector('[data-testid=actor-chen]')?.getAttribute('data-pose') === 'holdL', null, { timeout: 6000 });
+      await page.waitForTimeout(2600);
+      await page.click('[data-testid=act-photo]'); await page.waitForTimeout(3500);
+      const mem = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const g = r.result.transaction('loveMemories').objectStore('loveMemories').getAll(); g.onsuccess = () => { res(g.result.filter((m) => m.title === '合照').length); r.result.close(); }; }; }));
+      if (!mem) throw new Error('photo memory not saved');
+      await page.click('[data-testid=act-leave]');
+      await page.waitForSelector('[data-testid=actor-chen]', { state: 'detached', timeout: 10000 });
+    });
+    await e2e('心情溫度計：設定後陳卷毛依照心情回訊息', async () => {
+      await go('/');
+      await page.waitForSelector('[data-testid=mood-thermo]');
+      await page.click('[data-testid=mood-0]');
+      await page.waitForSelector('[data-testid=mood-temp]');
+      if ((await page.locator('[data-testid=mood-temp]').textContent()).trim() !== '10°') throw new Error('temp');
+      await page.waitForTimeout(4500);
+      const msgs = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const g = r.result.transaction('chat').objectStore('chat').getAll(); g.onsuccess = () => { res(g.result.filter((m) => m.interactionType?.startsWith('mood')).map((m) => m.content)); r.result.close(); }; }; }));
+      if (!msgs.length) throw new Error('no mood reply');
+      await page.reload(); await page.waitForTimeout(800);
+      if ((await page.locator('[data-testid=mood-temp]').textContent()).trim() !== '10°') throw new Error('mood not saved');
+    });
+    await e2e('陳卷毛會主動傳訊息', async () => {
+      await page.evaluate(() => localStorage.setItem('myroom:allowProactive', '1'));
+      await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const tx = r.result.transaction(['chat', 'meta'], 'readwrite'); tx.objectStore('chat').clear(); const k = 'proactive:' + new Date().toLocaleDateString('sv'); tx.objectStore('meta').delete(k); tx.objectStore('meta').delete('proactive:last'); tx.oncomplete = () => { r.result.close(); res(); }; }; }));
+      await go('/');
+      await page.reload();
+      await page.waitForFunction(() => new Promise((res) => { const r = indexedDB.open('my-room-db'); r.onsuccess = () => { const g = r.result.transaction('chat').objectStore('chat').getAll(); g.onsuccess = () => { res(g.result.some((m) => m.interactionType?.startsWith('proactive'))); r.result.close(); }; }; }), null, { timeout: 20000, polling: 1000 });
+      await page.evaluate(() => localStorage.removeItem('myroom:allowProactive'));
+    });
+    await e2e('陽台小物：擺到陽台、可以互動、可以翻轉', async () => {
+      await grant(100);
+      await go('/shop?tab=furniture&area=balcony');
+      await page.locator('[data-testid=shop-pot_tulip] [data-testid=buy]').click(); await page.waitForTimeout(300);
+      await go('/balcony');
+      await page.click('[data-testid=balcony-decor]');
+      await page.locator('.shop-item:has-text("鬱金香花盆") [data-testid=place-decor]').click();
+      await page.evaluate(() => scrollTo(0, 0));
+      const b = await page.locator('[data-testid=balcony]').boundingBox();
+      await page.mouse.click(b.x + b.width * 0.5, b.y + b.height * 0.8); await page.waitForTimeout(400);
+      await page.locator('[data-testid=decor-pot_tulip]').click({ force: true });
+      await page.waitForSelector('.scene .bubble', { timeout: 5000 });
+      await page.waitForTimeout(1500);
+      await page.click('[data-testid=balcony-arrange]');
+      await page.locator('[data-testid=decor-pot_tulip]').click({ force: true });
+      await page.click('[data-testid=flip-item]'); await page.waitForTimeout(300);
+      if (!(await page.locator('[data-testid=decor-pot_tulip]').getAttribute('class')).includes('flipped')) throw new Error('not flipped');
+    });
+    await e2e('情書信箱和扭蛋機會跳出陳卷毛的話', async () => {
+      await grant(200);
+      await go('/shop?tab=love');
+      for (const id of ['lovebox', 'gacha_love']) { await page.locator(`[data-testid=shop-${id}] [data-testid=buy]`).click(); await page.waitForTimeout(300); }
+      await go('/room?scene=bedroom');
+      const at = async (x, y) => { await page.evaluate(() => scrollTo(0, 0)); const bb = await page.locator('[data-testid=room-scene]').boundingBox(); return { x: bb.x + x / 192 * bb.width, y: bb.y + y / 240 * bb.height }; };
+      for (const [x, y] of [[150, 150], [175, 226]]) { await page.click('button:has-text("收納箱")'); await page.locator('[data-testid=place-item]').first().click(); await page.waitForTimeout(150); const p = await at(x, y); await page.mouse.click(p.x, p.y); await page.waitForTimeout(400); }
+      for (const id of ['lovebox', 'gacha_love']) {
+        await page.locator(`[data-defid=${id}]`).click({ force: true });
+        try { await page.waitForSelector('[data-testid=love-note]', { timeout: 8000 }); }
+        catch (e) { throw new Error(id + ' bubbles=' + JSON.stringify(await page.locator('.scene .bubble').allTextContents()) + ' toasts=' + JSON.stringify(await page.locator('.toast').allTextContents()) + ' top=' + await page.evaluate((id) => { const el = document.querySelector(`[data-defid=${id}]`); const r = el.getBoundingClientRect(); return document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).slice(0, 3).map((e) => e.getAttribute('data-defid') || e.className).join('|'); }, id)); }
+        await page.keyboard.press('Escape'); await page.waitForTimeout(1600);
+      }
+    });
+    await e2e('音效與背景音樂設定可以切換並保留', async () => {
+      await go('/settings');
+      await page.waitForSelector('[data-testid=sound-settings]');
+      await page.click('[data-testid=sfx-toggle]');
+      await page.click('[data-testid=bgm-rain]'); await page.waitForTimeout(500);
+      await page.reload(); await page.waitForTimeout(800);
+      if (await page.locator('[data-testid=sfx-toggle]').isChecked()) throw new Error('sfx not saved');
+      if (!(await page.locator('[data-testid=bgm-rain]').getAttribute('class')).includes('on')) throw new Error('track not saved');
+      await page.click('[data-testid=sfx-toggle]');
     });
     await e2e('戀愛日記可以新增、編輯、刪除', async () => {
       await go('/love-diary');

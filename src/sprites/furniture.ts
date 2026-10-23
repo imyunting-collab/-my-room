@@ -2,6 +2,7 @@
 import type { FurnStyle, FurnitureDef, DeviceDef, PlantDef } from '../data/catalog';
 import type { DayPart } from '../lib/util';
 import { Painter, shade, sprite } from './pixel';
+import { CUTE } from './cute';
 
 interface Pal { main: string; dark: string; light: string; accent: string; fabric: string }
 export const PAL: Record<FurnStyle, Pal> = {
@@ -94,6 +95,8 @@ export function bedBlanketURL(def: FurnitureDef): string {
 }
 
 function drawFurniture(p: Painter, def: FurnitureDef, c: Pal, o: { on?: boolean; open?: boolean; now?: Date; frame?: number }) {
+  const cute = CUTE[def.id];
+  if (cute) { cute(p, def, o); return; }
   const { w, h } = def;
   switch (def.category) {
     case 'cabinet': {
@@ -349,6 +352,7 @@ export function foodURL(id: string): string {
       case 'yogurt': p.r(3, 4, 8, 9, '#fbf7ef'); p.r(2, 3, 10, 2, '#e8b8b2'); p.r(4, 7, 6, 3, '#f2b8c6'); p.p(6, 8, '#ffffff'); break;
       case 'juice': p.r(3, 2, 8, 11, '#e9f3f6'); p.r(4, 5, 6, 7, '#f39b45'); p.r(8, 0, 1, 5, '#e05c6e'); p.r(4, 5, 6, 1, '#f8bd7b'); break;
       case 'cake': p.r(2, 6, 10, 7, '#fbf7ef'); p.r(2, 6, 10, 2, '#fbd6df'); p.r(2, 10, 10, 1, '#f2b8c6'); p.r(6, 3, 3, 3, '#e05c6e'); p.p(7, 2, '#6d8765'); break;
+      case 'waffle': p.r(1, 3, 12, 9, '#e8b066'); p.r(1, 3, 12, 1, '#f6cf8a'); for (let x = 2; x < 13; x += 3) for (let y = 5; y < 12; y += 3) p.p(x, y, '#c98a3c'); p.r(5, 1, 4, 3, '#fbf7ef'); p.r(3, 5, 3, 2, '#f3c46b'); break;
       default: p.r(2, 2, 10, 10, '#d99865');
     }
   });

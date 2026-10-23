@@ -5,6 +5,10 @@ import { ensureSeed } from './services/seed';
 import { refreshPlants } from './services/life';
 import { checkAchievements } from './services/reading';
 import { db } from './db/idb';
+import { loadAudioSettings, unlockAudio } from './lib/audio';
+import { sfx } from './lib/sound';
+import { syncBgm } from './lib/music';
+import { maybeProactive } from './services/love';
 
 async function boot() {
   const root = createRoot(document.getElementById('root')!);
@@ -21,6 +25,24 @@ async function boot() {
   root.render(<App />);
   // update plant growth whenever the app comes back to the foreground
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshPlants().catch(() => undefined); });
+
+  // ── sound: unlock on the first tap, soft click on buttons, music follows the app's visibility ──
+  await loadAudioSettings().catch(() => undefined);
+  document.addEventListener('pointerdown', (e) => {
+    if (unlockAudio()) syncBgm();
+    const el = (e.target as Element | null)?.closest?.('button, a, .chip, .list-item, [role=tab], label.btn');
+    if (el && !el.closest('.scene')) sfx('tap');
+  }, { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => syncBgm());
+
+  // ── 陳卷毛 sometimes texts first ──
+  // (automated test browsers opt in explicitly so his messages don't interfere with other checks)
+  let allow = true;
+  try { allow = !navigator.webdriver || localStorage.getItem('myroom:allowProactive') === '1'; } catch { /* ignore */ }
+  const ping = () => { if (allow && document.visibilityState === 'visible') maybeProactive().catch(() => undefined); };
+  setTimeout(ping, 8000);
+  setInterval(ping, 5 * 60e3);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(ping, 4000); });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && window.top === window.self) {
     // When a new version has been downloaded, switch to it right away instead of on the next launch.
     // Don't interrupt typing: if a text field is focused, wait until the app goes to the background.

@@ -13,8 +13,10 @@ import { toast } from '../lib/bus';
 
 type Tab = 'furniture' | 'love' | 'devices' | 'clothing' | 'food' | 'plants';
 
-export default function ShopPage({ tab: initial }: { tab?: string }) {
+type Area = 'all' | 'room' | 'kitchen' | 'balcony';
+export default function ShopPage({ tab: initial, area: area0 }: { tab?: string; area?: string }) {
   const [tab, setTab] = useState<Tab>((initial as Tab) ?? 'furniture');
+  const [area, setArea] = useState<Area>((area0 as Area) ?? 'all');
   const bal = useLive(balance, [], 0) ?? 0;
   const ownedF = new Set((useLive(() => db.all('ownedFurniture'), [], []) ?? []).map((f) => f.defId));
   const ownedD = new Set((useLive(() => db.all('ownedDevices'), [], []) ?? []).map((f) => f.defId));
@@ -26,13 +28,14 @@ export default function ShopPage({ tab: initial }: { tab?: string }) {
   const { busy, run } = useAction();
   const now = new Date();
 
-  const item = (key: string, name: string, img: string, price: number, owned: boolean, unlock: Unlock | undefined, onBuy: () => Promise<unknown>, sub?: string, after?: () => void) => {
+  const item = (key: string, name: string, img: string, price: number, owned: boolean, unlock: Unlock | undefined, onBuy: () => Promise<unknown>, sub?: string, after?: () => void, extra?: string) => {
     const locked = ctx ? !isUnlocked(unlock, ctx) : false;
     return (
       <div key={key} className={'shop-item' + (locked ? ' locked' : '')} data-testid={`shop-${key}`}>
         <div className="thumb"><img src={img} alt="" /></div>
         <div className="name">{name}</div>
         {sub && <div className="muted">{sub}</div>}
+        {extra && <div className="small" style={{ color: 'var(--forest-dark)' }}>{extra}</div>}
         <div className="price">{price === 0 ? '免費' : <Coins n={price} />}</div>
         {locked ? <div className="muted">🔒 {unlockText(unlock)}</div> : owned ? (
           <button className="btn small" disabled>已擁有</button>
@@ -49,10 +52,15 @@ export default function ShopPage({ tab: initial }: { tab?: string }) {
     <div>
       <div className="row between" style={{ marginBottom: 10 }}><span className="muted">用閱讀賺來的知識幣，把喜歡的東西搬進房間。</span><Coins n={bal} /></div>
       <Tabs value={tab} onChange={setTab} items={[['furniture', '家具'], ['love', '戀愛家具'], ['devices', '數位設備'], ['clothing', '服裝'], ['food', '食物'], ['plants', '盆栽']]} />
-      {(tab === 'furniture' || tab === 'love') && <p className="small">買到的家具會先放進房間的「收納箱」，再擺到喜歡的位置。</p>}
+      {(tab === 'furniture' || tab === 'love') && <p className="small">買到的家具會先放進房間的「收納箱」，再擺到喜歡的位置。✨ 標示的家具真的可以互動。</p>}
+      {tab === 'furniture' && (
+        <div className="chips" style={{ marginBottom: 10 }}>
+          {([['all', '全部'], ['room', '🛏 房間'], ['kitchen', '🍳 廚房'], ['balcony', '🌿 陽台']] as [Area, string][]).map(([k, l]) => <button key={k} className={'chip' + (area === k ? ' on' : '')} onClick={() => setArea(k)} data-testid={`area-${k}`}>{l}</button>)}
+        </div>
+      )}
       <div className="shop-grid">
-        {tab === 'furniture' && FURNITURE.filter((f) => !f.love && f.price > 0).map((f) => item(f.id, f.name, furnitureURL(f, { now, books: [] }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), `${FURN_CAT_LABEL[f.category]} · ${STYLE_LABEL[f.style]}`))}
-        {tab === 'love' && FURNITURE.filter((f) => f.love).map((f) => item(f.id, f.name, furnitureURL(f, { now }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), FURN_CAT_LABEL[f.category]))}
+        {tab === 'furniture' && FURNITURE.filter((f) => !f.love && f.price > 0 && (area === 'all' || (f.area ?? 'room') === area)).map((f) => item(f.id, f.name, furnitureURL(f, { now, books: [] }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), `${FURN_CAT_LABEL[f.category]} · ${STYLE_LABEL[f.style]}`, undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
+        {tab === 'love' && FURNITURE.filter((f) => f.love).map((f) => item(f.id, f.name, furnitureURL(f, { now }).url, f.price, ownedF.has(f.id), f.unlock, () => buyFurniture(f.id), FURN_CAT_LABEL[f.category], undefined, f.act ? `✨ ${f.desc ?? `可以「${f.act.verb}」`}` : f.desc))}
         {tab === 'devices' && DEVICES.map((d) => item(d.id, d.name, deviceURL(d, true).url, d.price, ownedD.has(d.id), undefined, () => buyDevice(d.id), d.deviceType === 'phone' ? '手機外觀（到手機設定更換）' : '購買後自動放到書桌上', () => { autoPlaceDevice(d.id); })) }
         {tab === 'clothing' && CLOTHING.filter((c) => c.price > 0).map((c) => item(c.id, c.name, characterURL({ who: c.character, pose: 'stand', view: 'front', expr: 'smile', equip: { ...DEFAULT_EQUIP[c.character], [c.slot]: c.id } }), c.price, ownedC.has(c.id), c.unlock, () => buyClothing(c.id), `${c.character === 'chen' ? '陳卷毛 · ' : ''}${c.tag}`))}
         {tab === 'food' && FOODS.map((f) => (

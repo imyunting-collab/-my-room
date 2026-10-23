@@ -11,21 +11,35 @@ import { sprite } from '../sprites/pixel';
 import { deviceById, furnById, FURN_CAT_LABEL, GIFTS, foodById, type FurnitureDef } from '../data/catalog';
 import { shelfBooks, shelfRows } from '../components/shelf';
 import { DEFAULT_WINDOW, devicePos, furniturePos, getWindowLayout, placeDevice, placeFurniture, setWindowLayout, storeFurniture, swapFurniture, toggleFlip, windowPos, WINDOW_W, ROOM_H, ROOM_W, FLOOR_Y } from '../services/life';
-import { endVisit, getVisit, giveGift, logInteraction, readTogether, saveMemory, shareMeal, startVisit } from '../services/love';
+import { endVisit, getTodayMood, getVisit, giveGift, logInteraction, moodLevel, readTogether, saveMemory, shareMeal, startVisit } from '../services/love';
 import { checkAchievements } from '../services/reading';
-import { VISIT_LINES, type Line } from '../data/dialogue';
+import { MOOD_REPLIES, VISIT_LINES, type Line } from '../data/dialogue';
 import { confirmDialog, Empty, Icon, Sheet, useAction } from '../ui';
 import { toast } from '../lib/bus';
 import { clamp, DAYPART_LABEL, pick, sleep, timeHM } from '../lib/util';
-import type { OwnedDevice, OwnedFurniture, RoomId } from '../db/types';
+import { ROOM_LABEL, type OwnedDevice, type OwnedFurniture, type SceneRoom } from '../db/types';
+import { FX_CHARS, performAct } from '../components/act';
+import { sfx } from '../lib/sound';
+import type { ActFx } from '../data/catalog';
 
 // ───────── scene constants ─────────
-const BALCONY_DOOR: Record<RoomId, { x: number } | null> = { bedroom: null, study: { x: 18 } };
-const ENTRY_DOOR: Record<RoomId, { x: number } | null> = { bedroom: { x: 176 }, study: null };
+const BALCONY_DOOR: Record<SceneRoom, { x: number } | null> = { bedroom: null, study: { x: 18 }, kitchen: null };
+const ENTRY_DOOR: Record<SceneRoom, { x: number } | null> = { bedroom: { x: 176 }, study: null, kitchen: null };
+// pieces whose sprite has two animation frames
+const ANIMATED = new Set(['lamp_lava', 'musicbox', 'catbed', 'fishbowl', 'bird_feeder', 'wind_chime', 'balloons', 'gacha_love']);
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
-function roomBg(room: RoomId) {
+function roomBg(room: SceneRoom) {
   return sprite(`roombg|${room}`, ROOM_W, ROOM_H, (p) => {
+    if (room === 'kitchen') {
+      // mint tiles + checkered floor
+      p.r(0, 0, ROOM_W, FLOOR_Y, '#e4f0ea');
+      for (let y = 0; y < FLOOR_Y - 6; y += 10) { p.r(0, y, ROOM_W, 1, '#cfe0d6'); for (let x = (y / 10) % 2 ? 0 : 5; x < ROOM_W; x += 10) p.r(x, y, 1, 10, '#cfe0d6'); }
+      p.r(0, 58, ROOM_W, 4, '#f6c9c3'); p.r(0, 58, ROOM_W, 1, '#fbe3df');
+      p.r(0, FLOOR_Y - 6, ROOM_W, 6, '#fbf7ef'); p.r(0, FLOOR_Y - 1, ROOM_W, 1, '#c9b89a');
+      for (let y = FLOOR_Y, row = 0; y < ROOM_H; y += 12, row++) for (let x = 0, col = 0; x < ROOM_W; x += 12, col++) p.r(x, y, 12, 12, (row + col) % 2 ? '#f3ece0' : '#e2d2b6');
+      return;
+    }
     const wall = room === 'bedroom' ? '#f3dfd3' : '#e3e8d6', wall2 = room === 'bedroom' ? '#ecd1c3' : '#d6ddc6';
     p.r(0, 0, ROOM_W, FLOOR_Y, wall);
     for (let x = 0; x < ROOM_W; x += 12) p.r(x, 0, 6, FLOOR_Y, wall2);
@@ -44,12 +58,12 @@ interface Actor { x: number; y: number; pose: Pose; view: View; flip: boolean; e
 interface Bubble { id: number; who: '99' | 'chen'; text: string }
 
 // persists across navigation within the session
-let mem99: { room: RoomId; x: number; y: number } = { room: 'bedroom', x: 96, y: 206 };
+let mem99: { room: SceneRoom; x: number; y: number } = { room: 'bedroom', x: 96, y: 206 };
 let pendingArrival = false;
 export function markArrival() { pendingArrival = true; }
 
-export default function RoomPage({ initial }: { initial?: RoomId }) {
-  const [room, setRoom] = useState<RoomId>(initial ?? mem99.room);
+export default function RoomPage({ initial }: { initial?: SceneRoom }) {
+  const [room, setRoom] = useState<SceneRoom>(initial && ROOM_LABEL[initial] ? initial : mem99.room);
   const { part, now } = useDayPart();
   const reduce = useReducedMotion();
   const equip99 = useEquip('99');
@@ -89,6 +103,13 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   const attachedCurtains = (wx: number, wy: number) => placed.filter((f) => def(f).category === 'curtain' && Math.abs(f.x - wx) <= 10 && Math.abs(f.y - wy) <= 16);
   const [attached, setAttached] = useState<string[]>([]);
   const [lampOff, setLampOff] = useState<Record<string, boolean>>({});
+  // interactive pieces: on/off lights, squish animation, flash, notes, 2-frame idle animation
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const [wiggling, setWiggling] = useState<Record<string, boolean>>({});
+  const [flashOn, setFlashOn] = useState(false);
+  const [note, setNote] = useState<{ title: string; text: string } | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const t = setInterval(() => setTick((v) => v + 1), 650); return () => clearInterval(t); }, []);
   const [projectorOn, setProjectorOn] = useState(false);
   const [picker, setPicker] = useState<null | 'meal' | 'read' | 'gift' | 'diary'>(null);
   const [lastMoment, setLastMoment] = useState<{ title: string; content: string } | null>(null);
@@ -151,6 +172,12 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   }
   function burst(x: number, y: number, ch = '💗', n = 3) {
     const items = Array.from({ length: n }, (_, i) => ({ id: Math.random(), x: x + (i - 1) * 6, y: y - 4 * i, ch }));
+    setHearts((h) => [...h, ...items]);
+    setTimeout(() => setHearts((h) => h.filter((x) => !items.includes(x))), 1700);
+  }
+  function fxBurst(kind: ActFx, x: number, y: number) {
+    const chars = FX_CHARS[kind];
+    const items = Array.from({ length: 4 }, (_, i) => ({ id: Math.random(), x: x + (i - 1.5) * 6, y: y - 3 * i, ch: chars[i % chars.length] }));
     setHearts((h) => [...h, ...items]);
     setTimeout(() => setHearts((h) => h.filter((x) => !items.includes(x))), 1700);
   }
@@ -272,10 +299,31 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
         setMe((a) => ({ ...a, view: 'front', expr: 'happy' }));
         say('99', pick(['放首歌～', '這張唱片好好聽', '♪ 啦啦啦']));
       }); break;
+      case 'act': await doAct(f); break;
       default: setSelected(f);
     }
   }
   const [openFridge, setOpenFridge] = useState<string | null>(null);
+
+  async function doAct(f: OwnedFurniture) {
+    const d = def(f), a = d.act!;
+    await guard(async () => {
+      if (!a.toggle) {
+        await walkMe(f.x + (me.x < f.x ? -12 : 12), Math.min(ROOM_H - 2, Math.max(f.y + 6, FLOOR_Y + 20)));
+        setMe((m) => ({ ...m, view: 'front', flip: false }));
+        if (a.sit) setMe((m) => ({ ...m, x: f.x, y: f.y - 2, pose: 'sit', view: 'front', z: f.y + 1 }));
+        else if (a.pose) setMe((m) => ({ ...m, pose: a.pose as Pose }));
+      }
+      await performAct(f, { x: f.x, y: f.y - d.h - 4 }, {
+        visiting: !!visit?.active,
+        say, fx: fxBurst, flash: () => { setFlashOn(true); setTimeout(() => setFlashOn(false), 260); },
+        wiggle: (id) => { setWiggling((w) => ({ ...w, [id]: true })); setTimeout(() => setWiggling((w) => ({ ...w, [id]: false })), 700); },
+        showNote: (title, text) => setNote({ title, text }),
+        isOn: (id) => !!toggled[id], setOn: (id, on) => setToggled((t) => ({ ...t, [id]: on })),
+      });
+      if (!a.toggle && !a.sit) { await sleep(a.ms ?? 900); setMe((m) => ({ ...m, pose: 'stand' })); }
+    });
+  }
 
   async function useDevice(d: OwnedDevice) {
     const dd = deviceById.get(d.defId)!;
@@ -298,6 +346,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   async function arrive() {
     const door = ENTRY_DOOR[room];
     const sx = door ? door.x : ROOM_W + 14;
+    sfx('door');
     setChen({ x: sx, y: FLOOR_Y + 22, pose: 'stand', view: 'front', flip: true, expr: 'happy', dur: 0, hidden: false });
     await sleep(350);
     const target = { x: clamp(me.x + 28, 30, 170), y: clamp(me.y, FLOOR_Y + 30, ROOM_H - 4) };
@@ -311,7 +360,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
 
   async function invite() {
     await guard(async () => {
-      if (room !== 'bedroom' && room !== 'study') return;
+
       markArrival();
       await startVisit();
       for (const a of await checkAchievements()) toast(`🏆 解鎖成就「${a.name}」+${a.reward}`, 'coin');
@@ -353,18 +402,69 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
   };
 
   const love = {
-    chat: () => guard(async () => { standUp(); await meet(12); const l = line(VISIT_LINES.chat); await sleep(1600); say('99', pick(['嗯嗯！', '真的嗎～', '哈哈哈', '我也這麼覺得'])); await logInteraction('chat', l.text); }),
+    chat: () => guard(async () => {
+      standUp(); await meet(12);
+      // he notices how you feel today
+      const mood = await getTodayMood();
+      const l = mood && Math.random() < 0.6 ? line(pick(MOOD_REPLIES[moodLevel(mood.temp)])) : line(VISIT_LINES.chat);
+      await sleep(1800); say('99', pick(['嗯嗯！', '真的嗎～', '哈哈哈', '我也這麼覺得'])); await logInteraction('chat', l.text);
+    }),
+    pat: () => guard(async () => {
+      standUp(); const { mx, my } = await meet(9);
+      setChen((c) => ({ ...c, pose: 'holdL', expr: 'smile' })); setMe((a) => ({ ...a, expr: 'shy', view: 'front' }));
+      sfx('sparkle'); fxBurst('sparkles', mx - 9, my - 54); line(VISIT_LINES.pat); await logInteraction('pat');
+      await sleep(2000); setChen((c) => ({ ...c, pose: 'stand' })); setMe((a) => ({ ...a, expr: 'happy', view: 'side' }));
+      setLastMoment({ title: '摸摸頭', content: '他摸了摸我的頭，說今天也很努力。' });
+    }),
+    hands: () => guard(async () => {
+      standUp(); const { mx, my } = await meet(8);
+      setMe((a) => ({ ...a, pose: 'holdR', view: 'front', flip: false, expr: 'shy' })); setChen((c) => ({ ...c, pose: 'holdL', view: 'front', flip: false, expr: 'shy' }));
+      sfx('hug'); fxBurst('hearts', mx, my - 30); line(VISIT_LINES.hands); await logInteraction('hands');
+      await sleep(2600); setMe((a) => ({ ...a, pose: 'stand', view: 'side' })); setChen((c) => ({ ...c, pose: 'stand', view: 'side', flip: true }));
+      setLastMoment({ title: '牽手', content: '牽著手在房間裡走了一圈。' });
+    }),
+    aegyo: () => guard(async () => {
+      standUp(); const { mx, my } = await meet(10);
+      say('99', pick(['陪我嘛～', '人家想你嘛', '抱一下下就好～']));
+      setMe((a) => ({ ...a, expr: 'shy', pose: 'wave', view: 'front' })); sfx('squeak'); fxBurst('hearts', mx - 10, my - 52);
+      await sleep(1200); setChen((c) => ({ ...c, expr: 'shy' })); line(VISIT_LINES.aegyo); await logInteraction('aegyo');
+      await sleep(1600); setMe((a) => ({ ...a, pose: 'stand', view: 'side', expr: 'happy' }));
+    }),
+    dance: () => guard(async () => {
+      standUp(); const { mx, my } = await meet(8);
+      const rec = placed.find((f) => def(f).category === 'recordPlayer');
+      if (rec && playing !== rec.id) { playMusic(); setPlaying(rec.id); }
+      line(VISIT_LINES.dance); await logInteraction('dance');
+      for (let i = 0; i < 8; i++) {
+        const p1: Pose = i % 2 ? 'walk1' : 'walk2';
+        setMe((a) => ({ ...a, pose: p1, view: i % 4 < 2 ? 'side' : 'front', flip: i % 4 === 1 }));
+        setChen((c) => ({ ...c, pose: i % 2 ? 'walk2' : 'walk1', view: i % 4 < 2 ? 'side' : 'front', flip: i % 4 !== 1 }));
+        if (i % 2 === 0) fxBurst('notes', mx, my - 56);
+        await sleep(380);
+      }
+      setMe((a) => ({ ...a, pose: 'stand', view: 'side', flip: false })); setChen((c) => ({ ...c, pose: 'stand', view: 'side', flip: true }));
+      setLastMoment({ title: '一起跳舞', content: rec ? '放著黑膠，在房間裡亂跳了一支舞。' : '沒有音樂也跳了一支舞，他踩到我的腳兩次。' });
+    }),
+    photo: () => guard(async () => {
+      standUp(); const { mx, my } = await meet(7);
+      setMe((a) => ({ ...a, pose: 'wave', view: 'front', flip: false, expr: 'happy' })); setChen((c) => ({ ...c, pose: 'wave', view: 'front', flip: false, expr: 'happy' }));
+      line(VISIT_LINES.photo); await sleep(900);
+      sfx('shutter'); setFlashOn(true); setTimeout(() => setFlashOn(false), 260); fxBurst('sparkles', mx, my - 56);
+      await saveMemory({ title: '合照', content: '和陳卷毛在房間拍了一張合照。', sourceType: 'game' });
+      await logInteraction('photo'); toast('📸 合照收進戀愛日記了', 'love');
+      await sleep(1200); setMe((a) => ({ ...a, pose: 'stand', view: 'side' })); setChen((c) => ({ ...c, pose: 'stand', view: 'side', flip: true }));
+    }),
     hug: () => guard(async () => {
       standUp(); const { mx, my } = await meet(6);
       setMe((a) => ({ ...a, pose: 'hug', expr: 'shy' })); setChen((c) => ({ ...c, pose: 'hug', expr: 'happy', z: my - 0.5 }));
-      burst(mx, my - 52); line(VISIT_LINES.hug); await logInteraction('hug');
+      burst(mx, my - 52); sfx('hug'); line(VISIT_LINES.hug); await logInteraction('hug');
       await sleep(2600); setMe((a) => ({ ...a, pose: 'stand', expr: 'happy' })); setChen((c) => ({ ...c, pose: 'stand', z: undefined }));
       setLastMoment({ title: '抱抱', content: '在房間裡抱了一下，電量充滿。' });
     }),
     kiss: () => guard(async () => {
       standUp(); const { mx, my } = await meet(7);
       setMe((a) => ({ ...a, pose: 'kiss', expr: 'closed' })); setChen((c) => ({ ...c, pose: 'kiss', expr: 'closed' }));
-      burst(mx, my - 50, '💗', 4); await sleep(500); line(VISIT_LINES.kiss); await logInteraction('kiss');
+      burst(mx, my - 50, '💗', 4); sfx('kiss'); await sleep(500); line(VISIT_LINES.kiss); await logInteraction('kiss');
       await sleep(2200); setMe((a) => ({ ...a, pose: 'stand', expr: 'shy' })); setChen((c) => ({ ...c, pose: 'stand', expr: 'shy' }));
       setLastMoment({ title: '親親', content: '耳朵都紅了的一個親親。' });
     }),
@@ -388,6 +488,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       await sleep(1400);
       const door = ENTRY_DOOR[room];
       await walk(setChen, chenRef, door ? door.x : ROOM_W + 16, door ? FLOOR_Y + 22 : chen.y);
+      sfx('door');
       setChen((c) => ({ ...c, hidden: true }));
       await endVisit();
       setMe((a) => ({ ...a, pose: 'stand', view: 'front' }));
@@ -472,6 +573,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
       <div className="scene-tabs" role="tablist">
         <button className={room === 'bedroom' ? 'on' : ''} onClick={() => setRoom('bedroom')}>🛏 臥室</button>
         <button className={room === 'study' ? 'on' : ''} onClick={() => setRoom('study')}>📚 書房</button>
+        <button className={room === 'kitchen' ? 'on' : ''} onClick={() => setRoom('kitchen')} data-testid="tab-kitchen">🍳 廚房</button>
         <button onClick={() => navigate('/balcony')}>🌿 陽台</button>
         <button onClick={() => navigate('/phone')}>📱 手機</button>
       </div>
@@ -493,13 +595,13 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             const d = def(f);
             const isShelf = d.category === 'bookshelf';
             const perRow = d.id === 'bookshelf_tall' ? 12 : 9;
-            const { url, w } = furnitureURL(d, { on: ((d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f)) || playing === f.id, frame: playing === f.id ? spin % 2 : 0, open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
+            const { url, w } = furnitureURL(d, { on: ((d.category === 'lamp' || d.category === 'readingLamp') && lampOn(f)) || playing === f.id || !!toggled[f.id], frame: playing === f.id ? spin % 2 : ANIMATED.has(d.id) ? tick % 2 : 0, open: openFridge === f.id, books: isShelf ? shelfData : undefined, rows: isShelf ? shelfRows(shelfData.length, perRow, d.id === 'bookshelf_tall' ? 6 : 5) : undefined, now: d.category === 'clock' ? now : undefined });
             const dragging = drag?.kind === 'furn' && drag.id === f.id;
             const riding = drag?.kind === 'win' && attached.includes(f.id);
             const fx = dragging ? drag.x : riding ? f.x + (drag.x - win.x) : f.x, fy = dragging ? drag.y : riding ? f.y + (drag.y - win.y) : f.y;
             const z = dragging ? 2800 : d.placement === 'wall' ? 4 : d.category === 'rug' ? 5 : d.placement === 'surface' ? Math.round(fy * 10) + 400 : Math.round(fy * 10);
             return (
-              <img key={f.id} draggable={false} className={'obj px' + (f.flip ? ' flipped' : '') + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
+              <img key={f.id} draggable={false} className={'obj px' + (f.flip ? ' flipped' : '') + (wiggling[f.id] ? ' wiggle' : '') + (selected?.id === f.id ? ' selected' : '') + (arrange ? ' arranging' : '') + (dragging ? ' dragging' : '')} src={url} alt={d.name} data-testid={`furn-${d.category}`} data-defid={d.id}
                 style={objStyle(fx, fy, w, z)} {...dragProps('furn', f.id, f.x, f.y)}
                 onClick={(e) => { if (passClick(e)) return; e.stopPropagation(); if (placing) return onSceneClick(e); if (arrange) return; interact(f); }} />
             );
@@ -515,6 +617,11 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
           {placed.filter((f) => (def(f).category === 'lamp' || def(f).category === 'readingLamp') && lampOn(f)).map((f) => (
             <div key={'g' + f.id} className="glow" style={{ left: pct(f.x - 40, ROOM_W), top: pct(f.y - def(f).h - 30, ROOM_H), width: pct(80, ROOM_W), height: pct(70, ROOM_H), zIndex: 3000 }} />
           ))}
+          {placed.filter((f) => toggled[f.id] && ['string_lights', 'camp_lantern', 'neon_heart'].includes(f.defId)).map((f) => (
+            <div key={'tg' + f.id} className={'glow' + (f.defId === 'neon_heart' ? ' pink' : '')} style={{ left: pct(f.x - 34, ROOM_W), top: pct(f.y - def(f).h - 22, ROOM_H), width: pct(68, ROOM_W), height: pct(def(f).h + 40, ROOM_H), zIndex: 3000 }} />
+          ))}
+          {placed.some((f) => f.defId === 'star_projector' && toggled[f.id]) && <div className="star-sky" data-testid="star-sky" style={{ height: pct(FLOOR_Y, ROOM_H) }} />}
+          {flashOn && <div className="photo-flash" />}
           {projectorOn && nearest('projector') && <div className="screen-glow" style={{ left: pct(110, ROOM_W), top: pct(20, ROOM_H), width: pct(66, ROOM_W), height: pct(44, ROOM_H), zIndex: 6 }} />}
           {actorEl(me, '99')}
           {actorEl(chen, 'chen')}
@@ -530,7 +637,7 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
           {hearts.map((h) => <div key={h.id} className="hearts" style={{ left: pct(h.x, ROOM_W), top: pct(h.y, ROOM_H) }}>{h.ch}</div>)}
           <div className="tint" style={{ background: TINT[part], zIndex: 2900 }} />
           <div className="scene-hud">
-            <span className="hud-pill">{room === 'bedroom' ? '臥室' : '書房'} · {DAYPART_LABEL[part]} {timeHM(now)}</span>
+            <span className="hud-pill">{ROOM_LABEL[room]} · {DAYPART_LABEL[part]} {timeHM(now)}</span>
             {visit?.active && <span className="hud-pill" style={{ background: '#fde9ea' }}>💗 陳卷毛在家</span>}
           </div>
           {arrange && !placing && <div className="place-hint" data-testid="arrange-hint">🛠 拖曳家具移動 · 點一下可收納／更換 · <button className="btn small" style={{ minHeight: 24, padding: '0 6px' }} onClick={(e) => { e.stopPropagation(); setArrange(false); }}>完成</button></div>}
@@ -544,6 +651,11 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
             <button className="btn" onClick={love.chat}>💬<span>聊天</span></button>
             <button className="btn pink" onClick={love.hug} data-testid="act-hug">🤗<span>抱抱</span></button>
             <button className="btn pink" onClick={love.kiss} data-testid="act-kiss">💋<span>親親</span></button>
+            <button className="btn pink" onClick={love.pat} data-testid="act-pat">🫳<span>摸摸頭</span></button>
+            <button className="btn pink" onClick={love.hands} data-testid="act-hands">🤝<span>牽手</span></button>
+            <button className="btn pink" onClick={love.aegyo} data-testid="act-aegyo">🥺<span>撒嬌</span></button>
+            <button className="btn" onClick={love.dance} data-testid="act-dance">💃<span>跳舞</span></button>
+            <button className="btn" onClick={love.photo} data-testid="act-photo">📸<span>拍合照</span></button>
             <button className="btn" onClick={love.sit}>🛋<span>一起坐著</span></button>
             <button className="btn" onClick={love.meal} data-testid="act-meal">🍙<span>一起吃飯</span></button>
             <button className="btn" onClick={love.read}>📖<span>一起看書</span></button>
@@ -592,6 +704,9 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
           </div>
         )}
       </Sheet>
+      <Sheet open={!!note} onClose={() => setNote(null)} title={note?.title}>
+        {note && <div className="love-note" data-testid="love-note"><p>{note.text}</p><span>— 陳卷毛</span></div>}
+      </Sheet>
       <Sheet open={winMenu} onClose={() => setWinMenu(false)} title="窗戶">
         <div className="stack">
           <p className="muted" style={{ margin: 0 }}>在擺設模式下可以直接拖曳窗戶換位置。</p>
@@ -609,14 +724,14 @@ export default function RoomPage({ initial }: { initial?: RoomId }) {
               <div key={f.id} className="shop-item">
                 <div className="thumb"><img src={url} alt="" /></div>
                 <div className="name">{d.name}</div><div className="muted">{FURN_CAT_LABEL[d.category]}</div>
-                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'furn', id: f.id, name: d.name }); }} data-testid="place-item">擺到{room === 'bedroom' ? '臥室' : '書房'}</button>
+                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'furn', id: f.id, name: d.name }); }} data-testid="place-item">擺到{ROOM_LABEL[room]}</button>
               </div>
             ); })}
             {storedDev.map((d) => { const dd = deviceById.get(d.defId)!; return (
               <div key={d.id} className="shop-item">
                 <div className="thumb"><img src={deviceURL(dd, true).url} alt="" /></div>
                 <div className="name">{dd.name}</div>
-                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'dev', id: d.id, name: dd.name }); }}>擺到{room === 'bedroom' ? '臥室' : '書房'}</button>
+                <button className="btn small primary" onClick={() => { setStorage(false); setPlacing({ kind: 'dev', id: d.id, name: dd.name }); }}>擺到{ROOM_LABEL[room]}</button>
               </div>
             ); })}
           </div>
@@ -655,7 +770,7 @@ function FurnitureMenu({ f, d, owned, onClose, onMove, onUse, onFlip }: { f: Own
   const { run } = useAction();
   const alts = owned.filter((o) => !o.roomId && furnById.get(o.defId)?.category === d.category);
   const useLabel: Partial<Record<FurnitureDef['interaction'], string>> = { shelf: '看動態書架', clock: '', deco: '', desk: '', table: '' };
-  const label = useLabel[d.interaction] ?? '互動';
+  const label = d.act?.verb ?? useLabel[d.interaction] ?? '互動';
   return (
     <div className="stack">
       {d.category === 'clock' && <p style={{ fontSize: 28, fontWeight: 800, margin: 0, textAlign: 'center' }}>{timeHM()}</p>}

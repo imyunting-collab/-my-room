@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { sfx } from './lib/sound';
 import { db } from './db/idb';
 import { useBus, useLive, useReducedMotion } from './hooks';
 import { back, Link, match, splitPath, usePath } from './router';
@@ -45,7 +46,7 @@ const ROUTES: RouteDef[] = [
   { pattern: '/achievements', title: '閱讀成就', el: () => <AchievementsPage /> },
   { pattern: '/room', title: '我的房間', el: (_p, q) => <RoomPage initial={(q.get('scene') as any) ?? undefined} />, full: true, root: true },
   { pattern: '/bookshelf', title: '動態書架', el: () => <BookshelfPage /> },
-  { pattern: '/shop', title: '商店', el: (_p, q) => <ShopPage tab={q.get('tab') ?? undefined} /> },
+  { pattern: '/shop', title: '商店', el: (_p, q) => <ShopPage tab={q.get('tab') ?? undefined} area={q.get('area') ?? undefined} /> },
   { pattern: '/wardrobe', title: '衣櫃與試衣間', el: () => <WardrobePage /> },
   { pattern: '/fridge', title: '冰箱', el: () => <FridgePage /> },
   { pattern: '/balcony', title: '陽台植物園', el: () => <BalconyPage />, full: true },
@@ -82,10 +83,12 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   useBus<{ text: string; kind: ToastKind; id: number }>('toast', (t) => {
+    if (t.kind === 'coin') sfx('coin');
     setToasts((x) => [...x.slice(-2), t]);
     setTimeout(() => setToasts((x) => x.filter((y) => y.id !== t.id)), t.kind === 'error' ? 4200 : 2800);
   });
   useBus<ChatMessage>('partnerMessage', (m) => {
+    sfx('message');
     const inChat = pathname === '/love' || (pathname === '/phone' && query.get('app') === 'chat');
     if (!inChat) {
       const id = Math.random();

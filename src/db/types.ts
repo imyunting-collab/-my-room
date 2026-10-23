@@ -224,9 +224,12 @@ export interface RelationshipSettings {
   updatedAt: number;
 }
 
-export type RoomId = 'bedroom' | 'study';
+export type RoomId = 'bedroom' | 'study' | 'kitchen' | 'balcony';
+/** rooms drawn by the Room scene (the balcony has its own page) */
+export type SceneRoom = Exclude<RoomId, 'balcony'>;
+export const ROOM_LABEL: Record<RoomId, string> = { bedroom: '臥室', study: '書房', kitchen: '廚房', balcony: '陽台' };
 export interface RoomConfiguration {
-  id: RoomId | 'balcony';
+  id: RoomId;
   wallpaper: string;
   floor: string;
   updatedAt: number;

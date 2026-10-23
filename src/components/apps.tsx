@@ -5,7 +5,7 @@ import { db } from '../db/idb';
 import { useBus, useLive } from '../hooks';
 import { navigate } from '../router';
 import { useBooks, useSessions, useStats, STATUS_LABEL } from '../state';
-import { deleteDiary, diaryToMarkdown, saveDiary, TEMPLATES, toggleFavorite } from '../services/journal';
+import { deleteDiary, diaryToMarkdown, lastDiaryCoins, saveDiary, TEMPLATES, toggleFavorite } from '../services/journal';
 import { clearChat, isTyping, markRead, recordCall, sendTopic, startVisit } from '../services/love';
 import { markArrival } from '../pages/Room';
 import { PARTNER_ID } from '../services/seed';
@@ -89,7 +89,7 @@ export function DiaryEditor({ id, onClose, template: t0 }: { id?: string; onClos
   const clearDraft = () => db.setKV('meta', 'diaryDraft', null);
   if (!loaded) return <p className="muted">載入中…</p>;
   return (
-    <form className="stack" onSubmit={(e) => { e.preventDefault(); run(async () => { await saveDiary(f); await clearDraft(); for (const a of await checkAchievements()) toast(`🏆 解鎖成就「${a.name}」+${a.reward}`, 'coin'); onClose(); }, '日記已儲存'); }} data-testid="diary-editor">
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); run(async () => { await saveDiary(f); await clearDraft(); if (lastDiaryCoins) toast(`📔 寫日記 +${lastDiaryCoins} 知識幣`, 'coin'); for (const a of await checkAchievements()) toast(`🏆 解鎖成就「${a.name}」+${a.reward}`, 'coin'); onClose(); }, '日記已儲存'); }} data-testid="diary-editor">
       <div className="row"><button type="button" className="btn small" onClick={onClose}>‹ 返回</button><span className="spacer" /><button type="button" className="btn small ghost" onClick={() => set('isFavorite', !f.isFavorite)} style={{ color: f.isFavorite ? '#c9a227' : undefined }}>{f.isFavorite ? '★ 已收藏' : '☆ 收藏'}</button></div>
       <div className="chips">{(Object.keys(TEMPLATES) as DiaryTemplate[]).map((k) => <button type="button" key={k} className={'chip' + (f.template === k ? ' on' : '')} onClick={() => set('template', k)}>{TEMPLATES[k].label}</button>)}</div>
       <div className="grid2">
